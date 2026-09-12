@@ -3,11 +3,11 @@
   "name": "Vimar By-alarm (SAIG)",
   "codeowners": ["@daniele"],
   "config_flow": true,
-  "dependencies": ["http", "frontend"],
+  "dependencies": ["http", "frontend", "lovelace"],
   "documentation": "https://github.com/DanPir/by-alarm-saig-ha-integration",
   "issue_tracker": "https://github.com/DanPir/by-alarm-saig-ha-integration/issues",
   "iot_class": "local_polling",
   "integration_type": "hub",
   "requirements": ["cryptography>=41.0.0"],
-  "version": "0.6.0"
+  "version": "0.8.0"
 }

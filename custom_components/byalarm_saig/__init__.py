@@ -4,11 +4,10 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 
-from homeassistant.components.frontend import add_extra_js_url
 from homeassistant.components.http import StaticPathConfig
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import CONF_HOST, CONF_PIN, CONF_USERNAME, Platform
-from homeassistant.core import HomeAssistant
+from homeassistant.const import CONF_HOST, CONF_PIN, CONF_USERNAME, EVENT_HOMEASSISTANT_STARTED, Platform
+from homeassistant.core import Event, HomeAssistant
 from homeassistant.exceptions import ConfigEntryAuthFailed, ConfigEntryNotReady
 from homeassistant.loader import async_get_integration
 
@@ -51,8 +50,58 @@ async def _async_register_card(hass: HomeAssistant) -> None:
     # scaricare la nuova card ad ogni aggiornamento invece di continuare a
     # servire una copia in cache obsoleta.
     integration = await async_get_integration(hass, DOMAIN)
-    add_extra_js_url(hass, f"{CARD_URL_PATH}?v={integration.version}")
+    resource_url = f"{CARD_URL_PATH}?v={integration.version}"
+
+    # Durante l'avvio di Home Assistant lo storage delle risorse Lovelace
+    # potrebbe non essere ancora completamente caricato quando questa
+    # funzione gira (dipendenza dichiarata su "lovelace", ma il caricamento
+    # dei dati persistiti puo' completarsi dopo il semplice async_setup del
+    # componente): se HA e' ancora in fase di avvio, rimandiamo a dopo
+    # l'evento "started", quando tutti i componenti hanno finito. In caso
+    # di reload della sola integrazione (HA gia' avviato) eseguiamo subito.
+    if hass.is_running:
+        await _async_ensure_lovelace_resource(hass, resource_url)
+    else:
+
+        async def _on_started(_event: Event) -> None:
+            await _async_ensure_lovelace_resource(hass, resource_url)
+
+        hass.bus.async_listen_once(EVENT_HOMEASSISTANT_STARTED, _on_started)
+
     _card_registered = True
+
+
+async def _async_ensure_lovelace_resource(hass: HomeAssistant, resource_url: str) -> None:
+    """Crea o aggiorna la risorsa Lovelace persistente per la card.
+
+    Inizialmente si usava add_extra_js_url (stato solo in-memory, ricreato
+    ad ogni riavvio): risultato inaffidabile su alcuni client - in
+    particolare l'app companion Android non vedeva sempre la card
+    ("Custom element doesn't exist"), pur funzionando su browser desktop.
+    Le risorse Lovelace persistenti (stesso meccanismo usato da HACS per
+    le sue card, vedi Impostazioni -> Dashboard -> Risorse) vengono invece
+    rilette da ogni client ad ogni connessione, in modo uniforme.
+    """
+    lovelace = hass.data.get("lovelace")
+    resources = getattr(lovelace, "resources", None)
+    if resources is None:
+        _LOGGER.warning(
+            "Impossibile registrare la risorsa Lovelace della card: "
+            "hass.data['lovelace'].resources non disponibile"
+        )
+        return
+
+    try:
+        existing = next(
+            (item for item in resources.async_items() if item["url"].startswith(CARD_URL_PATH)),
+            None,
+        )
+        if existing is None:
+            await resources.async_create_item({"res_type": "module", "url": resource_url})
+        elif existing["url"] != resource_url:
+            await resources.async_update_item(existing["id"], {"url": resource_url})
+    except Exception as err:  # noqa: BLE001
+        _LOGGER.warning("Impossibile aggiornare la risorsa Lovelace della card: %s", err)
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
