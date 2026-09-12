@@ -86,9 +86,19 @@ hacs.json, README.md
   (`type: tile`, `features: [{type: "alarm-modes"}]`) via
   `window.loadCardHelpers()`, per garantire aspetto identico all'originale;
   aggiunge poi tooltip personalizzati facendo una ricerca ricorsiva
-  attraverso gli shadow DOM annidati, deducendo la modalita' dall'icona
-  mostrata (piu' affidabile del testo, che dipende dalla lingua). **Questa
-  parte e' ancora in debug** - vedi to-do list.
+  attraverso gli shadow DOM annidati (attraversando sia lo shadow root che i
+  figli "light DOM" di ogni nodo, necessario perche' `ha-card` proietta il
+  suo contenuto reale via `<slot>`), e identifica ogni pulsante tramite
+  l'attributo `id="option-<mode>"` che `ha-control-select` assegna gia' a
+  ciascuna opzione (`option-disarmed`, `option-armed_home`,
+  `option-armed_away`, `option-armed_night` - combaciano con le chiavi di
+  `labels`). **Confermato funzionante** dopo debug dal vivo via DevTools
+  (vedi sotto).
+- Le risorse statiche servite da Home Assistant (`www/`) hanno cache
+  browser di 31 giorni. L'URL della card registrato da `add_extra_js_url`
+  include quindi `?v=<versione manifest>` (vedi `__init__.py`), cosi' ogni
+  bump di versione forza il download della nuova card invece di servire una
+  copia in cache obsoleta.
 
 ## Come testare senza Home Assistant
 
@@ -103,7 +113,8 @@ python tools/byalarm_sai_client.py --host <IP> --username <email> \
 
 1. [FATTO] Bug "Fuori casa" non funzionava (valore sbagliato "Tot" invece
    di "On") - confermato risolto
-2. Label personalizzate - risolto tramite card custom (vedi sotto)
+2. [FATTO] Label personalizzate - risolto tramite card custom; tooltip
+   confermati funzionanti dopo debug dal vivo (vedi sopra)
 3. [FATTO] Stato zone (binary_sensor)
 4. [FATTO] Stato sistema generale (binary_sensor)
 5. Integrazione con Alarmo - opzione aggiuntiva/alternativa alla card
@@ -124,16 +135,6 @@ python tools/byalarm_sai_client.py --host <IP> --username <email> \
 11. Nuova automazione (non legata all'integrazione By-alarm): notifica
     Telegram + notifica HA per apertura/chiusura della cassetta delle
     lettere (entita' Aqara "Cassetta Lettere")
-
-### Debug in corso: tooltip della card custom
-
-La card ora ha l'aspetto corretto (identico alla card nativa Tile +
-alarm-modes), ma i tooltip personalizzati sui pulsanti non compaiono ancora.
-`byalarm-card.js` ha dei `console.log("[byalarm-card] ...")` temporanei per
-diagnosticare (quante icone trova, che nomi hanno). Prossimo passo: guardare
-l'output della console del browser per capire se il problema e' "non trova
-le icone" o "le trova ma non riconosce il nome" - poi rimuovere i log di
-debug una volta risolto.
 
 ## Sicurezza / cose a cui fare attenzione
 

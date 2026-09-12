@@ -91,56 +91,49 @@ class ByAlarmCard extends HTMLElement {
 
   /**
    * Cerca ricorsivamente dentro tutti gli shadow DOM annidati (la card Tile
-   * con "features" nidifica piu' livelli di componenti) i pulsanti/icone
-   * della fila di inserimento, e aggiunge un title/aria-label leggibile
-   * deducendo la modalita' dall'icona mostrata (piu' affidabile del testo,
-   * che dipende dalla lingua). Ritorna true se ha trovato ed etichettato
-   * almeno un elemento.
+   * con "features" nidifica piu' livelli di componenti) le opzioni della
+   * fila di inserimento (ha-control-select le rende come
+   * `[role="radio"] id="option-<mode>"`, dove <mode> combacia con le chiavi
+   * di `this._labels`) e ne sovrascrive title/aria-label. Usare l'id invece
+   * dell'icona e' necessario perche' le icone qui sono renderizzate con un
+   * path SVG raw (nessun attributo "icon" leggibile). Ritorna true se ha
+   * trovato ed etichettato almeno un elemento.
    */
   _patchTooltips() {
     if (!this._innerCard) return false;
 
-    const icons = this._deepQueryAll(this._innerCard, "ha-icon, ha-svg-icon, ha-state-icon");
-    console.log("[byalarm-card] icone trovate:", icons.length, icons);
-    if (!icons.length) return false;
+    const options = this._deepQueryAll(this._innerCard, '[role="radio"][id^="option-"]');
+    if (!options.length) return false;
 
     let labeled = 0;
-    icons.forEach((iconEl) => {
-      const icon = iconEl.getAttribute("icon") || iconEl.icon || "";
-      console.log("[byalarm-card] icona:", icon, iconEl);
-      const label = this._labelForIcon(icon);
+    options.forEach((optEl) => {
+      const mode = optEl.id.replace(/^option-/, "");
+      const label = this._labels[mode];
       if (!label) return;
-      // il title/aria-label vanno sull'elemento cliccabile (il genitore piu'
-      // vicino con un ruolo interattivo), non sulla sola icona
-      const target =
-        iconEl.closest("ha-control-button, button, [role='button'], [role='option'], [role='radio']") || iconEl;
-      target.title = label;
-      target.setAttribute("aria-label", label);
+      optEl.title = label;
+      optEl.setAttribute("aria-label", label);
       labeled++;
     });
-    console.log("[byalarm-card] pulsanti etichettati:", labeled);
     return labeled > 0;
   }
 
+  /**
+   * Attraversa sia lo shadow DOM che i figli "light DOM" di ogni nodo:
+   * necessario perche' alcuni componenti (es. ha-card) hanno uno shadow
+   * root che e' solo un <slot>, mentre il contenuto vero e proprio resta
+   * nel light DOM dell'elemento e viene solo proiettato nello slot.
+   */
   _deepQueryAll(root, selector) {
-    const scope = root.shadowRoot || root;
-    let results = Array.from(scope.querySelectorAll(selector));
-    const all = scope.querySelectorAll("*");
-    all.forEach((el) => {
-      if (el.shadowRoot) {
-        results = results.concat(this._deepQueryAll(el, selector));
+    const results = [];
+    const visit = (node) => {
+      if (node.matches && node.matches(selector)) results.push(node);
+      if (node.shadowRoot) {
+        Array.from(node.shadowRoot.children).forEach(visit);
       }
-    });
+      Array.from(node.children || []).forEach(visit);
+    };
+    visit(root);
     return results;
-  }
-
-  _labelForIcon(icon) {
-    if (!icon) return null;
-    if (icon.includes("shield-off")) return this._labels.disarmed;
-    if (icon.includes("shield-home") || icon.includes("home")) return this._labels.armed_home;
-    if (icon.includes("shield-lock") || icon.includes("lock")) return this._labels.armed_away;
-    if (icon.includes("shield-moon") || icon.includes("moon") || icon.includes("weather-night")) return this._labels.armed_night;
-    return null;
   }
 
   getCardSize() {

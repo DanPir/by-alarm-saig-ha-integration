@@ -10,6 +10,7 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import CONF_HOST, CONF_PIN, CONF_USERNAME, Platform
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import ConfigEntryAuthFailed, ConfigEntryNotReady
+from homeassistant.loader import async_get_integration
 
 from .api import ByAlarmAuthError, ByAlarmClient, ByAlarmConnectionError
 from .const import (
@@ -45,7 +46,12 @@ async def _async_register_card(hass: HomeAssistant) -> None:
     await hass.http.async_register_static_paths(
         [StaticPathConfig(CARD_URL_PATH, str(www_dir / "byalarm-card.js"), True)]
     )
-    add_extra_js_url(hass, CARD_URL_PATH)
+    # Il file viene servito con cache lunga (31 giorni): appendere la
+    # versione dell'integrazione come query string forza i browser a
+    # scaricare la nuova card ad ogni aggiornamento invece di continuare a
+    # servire una copia in cache obsoleta.
+    integration = await async_get_integration(hass, DOMAIN)
+    add_extra_js_url(hass, f"{CARD_URL_PATH}?v={integration.version}")
     _card_registered = True
 
 
