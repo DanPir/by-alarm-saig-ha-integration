@@ -130,23 +130,25 @@ class ByAlarmCard extends HTMLElement {
   }
 
   /**
-   * Crea (una sola volta) e aggiorna uno <span slot="secondary"> aggiuntivo
-   * dentro <ha-tile-info>, cosi' il riepilogo zone compare accanto/sotto lo
-   * stato ("Disattivo") invece che sotto l'intera card. Aggiunto come
-   * fratello dello <span> nativo (non modificato), cosi' i ri-render interni
-   * della tile card non lo cancellano.
+   * Crea (una sola volta) e aggiorna un <div> aggiuntivo, ultimo figlio
+   * "light DOM" di <ha-card>: lo shadow root di ha-card e' un semplice
+   * <slot> di default, quindi qualunque figlio in piu' che aggiungiamo
+   * viene renderizzato in fondo alla card, sotto la riga dei pulsanti
+   * (icona/nome/stato e la feature alarm-modes sono dentro
+   * <ha-tile-container>, che resta il primo figlio). Non tocca nulla che
+   * la tile card gestisce, quindi sopravvive ai suoi ri-render interni.
    */
   _patchZonesInfo() {
     if (!this._innerCard) return false;
 
-    const info = this._deepQueryAll(this._innerCard, "ha-tile-info")[0];
-    if (!info) return false;
+    const card = this._deepQueryAll(this._innerCard, "ha-card")[0];
+    if (!card) return false;
 
-    if (!this._zonesEl || this._zonesEl.parentElement !== info) {
-      this._zonesEl = document.createElement("span");
-      this._zonesEl.setAttribute("slot", "secondary");
+    if (!this._zonesEl || this._zonesEl.parentElement !== card) {
+      this._zonesEl = document.createElement("div");
       this._zonesEl.className = "byalarm-zones-info";
-      info.appendChild(this._zonesEl);
+      this._zonesEl.style.cssText = "padding: 0 16px 16px 16px; font-size: 0.85em;";
+      card.appendChild(this._zonesEl);
     }
 
     const stateObj = this._hass?.states[this._config.entity];
@@ -164,7 +166,7 @@ class ByAlarmCard extends HTMLElement {
       text = "Tutte le zone chiuse";
     }
 
-    this._zonesEl.textContent = text ? ` · ${text}` : "";
+    this._zonesEl.textContent = text;
     this._zonesEl.style.color = hasIssue ? "var(--error-color, #db4437)" : "var(--secondary-text-color)";
     this._zonesEl.style.fontWeight = hasIssue ? "500" : "normal";
     return true;
@@ -190,7 +192,7 @@ class ByAlarmCard extends HTMLElement {
   }
 
   getCardSize() {
-    return this._innerCard && this._innerCard.getCardSize ? this._innerCard.getCardSize() : 4;
+    return (this._innerCard && this._innerCard.getCardSize ? this._innerCard.getCardSize() : 4) + 1;
   }
 
   /**
