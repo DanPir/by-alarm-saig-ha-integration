@@ -1,13 +1,8 @@
 # Vimar By-alarm (SAIG) for Home Assistant
 
-Custom integration to control a **Vimar By-alarm** intrusion system (**SAIG**
-model gateway) directly from Home Assistant, without needing the VIEW Pro
-app.
-
-The protocol used by the gateway (encrypted WebSocket on port 20615) was
-fully reverse-engineered: decompilation of the official apps, network
-traffic analysis, and runtime instrumentation. This is not an official
-Vimar integration.
+Custom integration to control a **Vimar By-Alarm** intrusion system (**SAIG**
+model gateway) directly from Home Assistant, without needing the VIEW
+app. This is not an official Vimar integration.
 
 ## What you need before starting
 
@@ -16,16 +11,63 @@ system:
 
 | Data | Where to find it |
 |---|---|
-| Gateway IP address | Home router / VIEW app ("Connection parameters") |
-| Vimar account email | Your VIEW/VIEW Pro account |
+| SAIG gateway IP address | Home router / VIEW app ("Connection parameters") |
+| Vimar account email | Your Vimar account |
 | User UID | `sub` claim of the account's JWT token (requires a one-time analysis of the app's traffic) |
-| Device DUID | The identifier of the **SAIG** model gateway (e.g. `A32250FBB01025`) among the devices associated with your system |
+| Device DUID | The identifier of the **SAIG** model gateway (e.g. `A32250FBB01025`) among the devices associated with your system (VIEW app -> Settings -> System Info) |
 | Device password | Saved (encrypted) by VIEW Pro in `associations.json` |
 | PIN | The user code you use on the alarm's physical keypad |
 
 Retrieving the `User UID` and `Device password` requires technical analysis
 of the official app's traffic/storage (they're not normally visible to the
-user). If you're not sure how to proceed, check the repository issues.
+user) - see the step-by-step guide below. If you're not sure how to
+proceed, check the repository issues.
+
+### Getting the User UID
+
+This is the `sub` claim of your Vimar account's JWT access token, issued
+whenever you log into a Vimar app. Either **View Pro** (Windows) or the
+**View** mobile app work for this, since both authenticate against the
+same cloud account:
+
+1. Set up a traffic-capture proxy (e.g. [mitmproxy](https://mitmproxy.org/)
+   or similar) as the system/Wi-Fi proxy for the device running the app,
+   with its certificate trusted so HTTPS traffic can be inspected.
+2. Log into the app while capturing; find the authentication response
+   containing a JWT (a long string made of three base64url segments
+   separated by `.`).
+3. Decode the JWT payload (e.g. at [jwt.io](https://jwt.io), or any
+   offline base64url decoder if you'd rather not paste a real token into
+   a website) and read the `sub` claim - that's your User UID.
+
+### Getting the Device password
+
+Unlike the User UID, we've only verified this one path: **View Pro**
+(Windows) saves it, AES-encrypted, in a local `associations.json` file.
+We haven't investigated whether the mobile View app stores an equivalent
+locally.
+
+1. Install View Pro on Windows and log in with your Vimar account; it
+   downloads and locally caches the password for every device associated
+   with your account.
+2. Locate `associations.json` in View Pro's local app data folder (the
+   exact path varies by version - search your Windows user profile for a
+   file with that name after logging in).
+3. Run the included decryption tool with your email and the User UID from
+   the previous step:
+   ```bash
+   pip install cryptography
+   python tools/decrypt_view_pro_password.py associations.json \
+     --email your@account.com --useruid <uid-from-previous-step>
+   ```
+   It prints the decrypted password for every associated device (by
+   DUID) - the one matching your SAIG gateway's DUID is the
+   `device_password` this integration needs.
+
+This whole process is inherently fragile: it depends on the exact local
+storage format and encryption scheme View Pro happens to use today (see
+`tools/decrypt_view_pro_password.py` for the full reverse-engineered
+recipe), and Vimar could change it at any time without notice.
 
 ## Installation
 
@@ -103,7 +145,6 @@ block. Set `show_zones: false` to turn this warning off entirely.
 
 - Only the first detected area/partition is exposed as an entity
   (multi-area systems would require an extension)
-- Unofficial, not supported by Vimar
 - The device password saved by VIEW Pro was stable in testing, but the
   gateway could theoretically regenerate it: if that happens, it would need
   to be updated in the integration's configuration
