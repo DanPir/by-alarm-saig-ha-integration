@@ -1,0 +1,11 @@
+# Copia questo file come "parametri_byalarm.txt" (già in .gitignore) e
+# riempi con i tuoi dati reali. Non committare mai il file compilato.
+
+host = 
+port = 20615
+username = 
+useruid = 
+duid = 
+device_password = 
+source_uid = 
+pin = 

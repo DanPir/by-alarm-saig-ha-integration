@@ -1,0 +1,4 @@
+# non committare mai credenziali reali
+parametri_byalarm.txt
+*.secrets
+.env

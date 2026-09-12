@@ -1,0 +1,38 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Connect your Vimar By-alarm gateway",
+        "description": "Enter your system's details. If you don't have them, check the repository guide on how to retrieve them.",
+        "data": {
+          "host": "Gateway IP address",
+          "username": "Vimar account email",
+          "useruid": "User UID (from the account token)",
+          "duid": "Device DUID (SAIG model)",
+          "device_password": "Device password",
+          "pin": "User code (keypad PIN)"
+        }
+      }
+    },
+    "error": {
+      "invalid_auth": "Credentials rejected by the gateway. Check email, User UID, DUID and device password.",
+      "cannot_connect": "Could not reach the gateway. Check the IP address and network.",
+      "no_area": "No intrusion area found on this gateway.",
+      "unknown": "Unexpected error. Check the Home Assistant logs for details."
+    },
+    "abort": {
+      "already_configured": "This device is already configured."
+    }
+  },
+  "entity": {
+    "binary_sensor": {
+      "area_alarm": { "name": "Alarm active" },
+      "area_alarm_memory": { "name": "Alarm memory" },
+      "zone_tamper": { "name": "Zone tamper" },
+      "zone_mask": { "name": "Zone masked" },
+      "device_tamper_alarm": { "name": "Device tamper" },
+      "device_tamper_alarm_memory": { "name": "Device tamper memory" },
+      "maintenance": { "name": "Maintenance" }
+    }
+  }
+}

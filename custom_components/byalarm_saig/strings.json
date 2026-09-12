@@ -1,0 +1,38 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Connetti il gateway Vimar By-alarm",
+        "description": "Inserisci i dati del tuo impianto. Se non li hai, consulta la guida del repository per come recuperarli.",
+        "data": {
+          "host": "Indirizzo IP del gateway",
+          "username": "Email dell'account Vimar",
+          "useruid": "User UID (dal token dell'account)",
+          "duid": "DUID del dispositivo (modello SAIG)",
+          "device_password": "Password del dispositivo",
+          "pin": "Codice utente (PIN tastiera)"
+        }
+      }
+    },
+    "error": {
+      "invalid_auth": "Credenziali rifiutate dal gateway. Controlla email, User UID, DUID e password del dispositivo.",
+      "cannot_connect": "Impossibile raggiungere il gateway. Controlla l'indirizzo IP e la rete.",
+      "no_area": "Nessuna area antifurto trovata su questo gateway.",
+      "unknown": "Errore imprevisto. Controlla i log di Home Assistant per i dettagli."
+    },
+    "abort": {
+      "already_configured": "Questo dispositivo e' gia' configurato."
+    }
+  },
+  "entity": {
+    "binary_sensor": {
+      "area_alarm": { "name": "Allarme in corso" },
+      "area_alarm_memory": { "name": "Allarme in memoria" },
+      "zone_tamper": { "name": "Tamper zona" },
+      "zone_mask": { "name": "Zona mascherata" },
+      "device_tamper_alarm": { "name": "Tamper dispositivo" },
+      "device_tamper_alarm_memory": { "name": "Tamper dispositivo in memoria" },
+      "maintenance": { "name": "Manutenzione" }
+    }
+  }
+}

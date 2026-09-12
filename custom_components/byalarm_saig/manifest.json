@@ -1,0 +1,13 @@
+{
+  "domain": "byalarm_saig",
+  "name": "Vimar By-alarm (SAIG)",
+  "codeowners": ["@daniele"],
+  "config_flow": true,
+  "dependencies": ["http", "frontend"],
+  "documentation": "https://github.com/CHANGEME/ha-byalarm-saig",
+  "issue_tracker": "https://github.com/CHANGEME/ha-byalarm-saig/issues",
+  "iot_class": "local_polling",
+  "integration_type": "hub",
+  "requirements": ["cryptography>=41.0.0"],
+  "version": "0.2.0"
+}
