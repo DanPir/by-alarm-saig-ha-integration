@@ -95,10 +95,24 @@ hacs.json, README.md
   `labels`). **Confermato funzionante** dopo debug dal vivo via DevTools
   (vedi sotto).
 - Le risorse statiche servite da Home Assistant (`www/`) hanno cache
-  browser di 31 giorni. L'URL della card registrato da `add_extra_js_url`
-  include quindi `?v=<versione manifest>` (vedi `__init__.py`), cosi' ogni
-  bump di versione forza il download della nuova card invece di servire una
-  copia in cache obsoleta.
+  browser di 31 giorni. L'URL della card include quindi `?v=<versione
+  manifest>` (vedi `__init__.py`), cosi' ogni bump di versione forza il
+  download della nuova card invece di servire una copia in cache obsoleta.
+- La card viene registrata come **risorsa Lovelace persistente**
+  (`hass.data["lovelace"].resources`, creata/aggiornata da
+  `_async_ensure_lovelace_resource`), non con `add_extra_js_url` (usato
+  inizialmente): quest'ultimo tiene lo stato solo in memoria di processo,
+  ricalcolato ad ogni riavvio, e si e' rivelato inaffidabile su alcuni
+  client (in particolare l'app companion Android mostrava "Custom element
+  doesn't exist: byalarm-card" anche quando browser desktop funzionavano).
+  Le risorse persistenti sono lo stesso meccanismo usato da HACS per le
+  sue card e vengono rilette da ogni client ad ogni connessione. **Nota**:
+  lo storage delle risorse potrebbe non essere ancora caricato quando
+  l'integrazione fa il proprio setup durante l'avvio (anche con "lovelace"
+  come dipendenza dichiarata) - la registrazione va quindi rimandata
+  all'evento `EVENT_HOMEASSISTANT_STARTED` quando si parte da un boot
+  freddo (altrimenti si rischia di creare una risorsa duplicata invece di
+  aggiornare quella esistente - successo dal vivo durante lo sviluppo).
 
 ## Come testare senza Home Assistant
 
