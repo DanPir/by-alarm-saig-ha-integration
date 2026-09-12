@@ -131,9 +131,25 @@ python tools/byalarm_sai_client.py --host <IP> --username <email> \
    confermati funzionanti dopo debug dal vivo (vedi sopra)
 3. [FATTO] Stato zone (binary_sensor)
 4. [FATTO] Stato sistema generale (binary_sensor)
-5. Integrazione con Alarmo - opzione aggiuntiva/alternativa alla card
-   custom, non ancora iniziata; richiederebbe automazioni-ponte
-   bidirezionali, mantenendo la nostra entita' nativa come fonte di verita'
+5. [FATTO] Integrazione con Alarmo: 3 automazioni create via API
+   (`byalarm_vimar_to_alarmo_sync`, `byalarm_alarmo_to_vimar_sync`,
+   `byalarm_vimar_triggered_notify`). Il Vimar resta la fonte di verita':
+   - Vimar -> Alarmo: su cambio stato del Vimar, chiama `alarmo.arm`
+     (`skip_delay: true, force: true`) o `alarmo.disarm` sull'entita'
+     `alarm_control_panel.alarmo`, bypassando countdown/blocco sensori di
+     Alarmo (e' solo uno specchio).
+   - Alarmo -> Vimar: su cambio stato di Alarmo, chiama i servizi standard
+     `alarm_control_panel.alarm_arm_*`/`alarm_disarm` sul Vimar reale.
+   - Entrambe le direzioni hanno una condition "solo se lo stato target e'
+     diverso", per evitare loop (verificato dal vivo: nessuna oscillazione).
+   - Quando il Vimar scatta ("triggered"), un'automazione dedicata
+     richiama `script.alarmo_triggered` (sirena+luci) e le notifiche
+     WhatsApp/Teams/push gia' usate da Alarmo, con le zone aperte del
+     Vimar come causa (non testata dal vivo per non generare notifiche
+     false ai destinatari reali - verificarla con un test controllato).
+   - Card custom e card/entita' Alarmo convivono entrambe (scelta
+     dell'utente): la prima per comandare il pannello reale, la seconda
+     per sfruttare le funzioni di Alarmo (utenti, notifiche, automazioni).
 6. [FATTO] Guida su dove/come reperire i parametri di configurazione
    (README: sezioni "Getting the User UID" e "Getting the Device
    password", con `tools/decrypt_view_pro_password.py` funzionante e

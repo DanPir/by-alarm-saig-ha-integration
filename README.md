@@ -127,6 +127,92 @@ of affected zones appended — buttons are never disabled, since the
 protocol doesn't expose which arm mode(s) a given zone would actually
 block. Set `show_zones: false` to turn this warning off entirely.
 
+## Optional: bridging to Alarmo
+
+If you use [Alarmo](https://github.com/nielsfaber/alarmo) (a popular
+HACS alarm panel integration, e.g. for its multi-user codes or its own
+automation/notification system), you can mirror this integration's real
+alarm state onto an Alarmo panel with two small automations, keeping the
+Vimar entity as the single source of truth: Alarmo becomes a live copy
+you interact with, but every command still goes through this integration
+to the real gateway. Replace the entity IDs with your own.
+
+```yaml
+# Vimar -> Alarmo: mirror the real state, no delay/sensor checks (it's
+# just a reflection of a panel that's already armed/disarmed for real).
+- alias: "Vimar By-Alarm -> Alarmo (sync state)"
+  trigger:
+    - platform: state
+      entity_id: alarm_control_panel.vimar_by_alarm
+      to: ["disarmed", "armed_away", "armed_home", "armed_night"]
+  condition:
+    - condition: template
+      value_template: "{{ states('alarm_control_panel.alarmo') != trigger.to_state.state }}"
+  action:
+    - choose:
+        - conditions: "{{ trigger.to_state.state == 'disarmed' }}"
+          sequence:
+            - action: alarmo.disarm
+              target: { entity_id: alarm_control_panel.alarmo }
+        - conditions: "{{ trigger.to_state.state == 'armed_away' }}"
+          sequence:
+            - action: alarmo.arm
+              target: { entity_id: alarm_control_panel.alarmo }
+              data: { mode: away, skip_delay: true, force: true }
+        - conditions: "{{ trigger.to_state.state == 'armed_home' }}"
+          sequence:
+            - action: alarmo.arm
+              target: { entity_id: alarm_control_panel.alarmo }
+              data: { mode: home, skip_delay: true, force: true }
+        - conditions: "{{ trigger.to_state.state == 'armed_night' }}"
+          sequence:
+            - action: alarmo.arm
+              target: { entity_id: alarm_control_panel.alarmo }
+              data: { mode: night, skip_delay: true, force: true }
+
+# Alarmo -> Vimar: forward whatever Alarmo was told (e.g. from its own
+# card or a user code) to the real gateway.
+- alias: "Alarmo -> Vimar By-Alarm (forward command)"
+  trigger:
+    - platform: state
+      entity_id: alarm_control_panel.alarmo
+      to: ["disarmed", "armed_away", "armed_home", "armed_night"]
+  condition:
+    - condition: template
+      value_template: "{{ states('alarm_control_panel.vimar_by_alarm') != trigger.to_state.state }}"
+  action:
+    - choose:
+        - conditions: "{{ trigger.to_state.state == 'disarmed' }}"
+          sequence:
+            - action: alarm_control_panel.alarm_disarm
+              target: { entity_id: alarm_control_panel.vimar_by_alarm }
+        - conditions: "{{ trigger.to_state.state == 'armed_away' }}"
+          sequence:
+            - action: alarm_control_panel.alarm_arm_away
+              target: { entity_id: alarm_control_panel.vimar_by_alarm }
+        - conditions: "{{ trigger.to_state.state == 'armed_home' }}"
+          sequence:
+            - action: alarm_control_panel.alarm_arm_home
+              target: { entity_id: alarm_control_panel.vimar_by_alarm }
+        - conditions: "{{ trigger.to_state.state == 'armed_night' }}"
+          sequence:
+            - action: alarm_control_panel.alarm_arm_night
+              target: { entity_id: alarm_control_panel.vimar_by_alarm }
+```
+
+The condition on each automation ("only act if the target doesn't already
+match") is what prevents a feedback loop between the two - each direction
+settles after one hop instead of bouncing back and forth. Note the real
+gateway round-trip (session + PIN encryption + command) can take several
+seconds, longer than Alarmo's own instant state changes.
+
+Alarmo has no direct way to *become* `triggered` from the outside (that
+only happens from its own sensors), so a genuine alarm on the Vimar side
+won't automatically flip Alarmo to `triggered`. If you want Vimar's real
+trigger to run Alarmo-side reactions (sirens, notifications, etc.), add a
+third automation that fires on `alarm_control_panel.vimar_by_alarm`
+turning `triggered` and calls those same actions/scripts directly.
+
 ## Available entities
 
 - `alarm_control_panel.*` — state and commands for the alarm area
