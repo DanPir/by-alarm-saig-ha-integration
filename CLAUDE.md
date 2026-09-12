@@ -134,10 +134,16 @@ python tools/byalarm_sai_client.py --host <IP> --username <email> \
 5. Integrazione con Alarmo - opzione aggiuntiva/alternativa alla card
    custom, non ancora iniziata; richiederebbe automazioni-ponte
    bidirezionali, mantenendo la nostra entita' nativa come fonte di verita'
-6. Guida HACS su dove reperire i parametri di configurazione + disclaimer
-   generale (compatibilita'/sicurezza non garantite) - non ancora scritta
-7. Pubblicazione su HACS (repository GitHub reale, al momento
-   manifest.json/README hanno placeholder "CHANGEME" da sostituire)
+6. [FATTO] Guida su dove/come reperire i parametri di configurazione
+   (README: sezioni "Getting the User UID" e "Getting the Device
+   password", con `tools/decrypt_view_pro_password.py` funzionante e
+   testato contro un `associations.json` reale). Manca ancora un
+   disclaimer generale su compatibilita'/sicurezza non garantite.
+7. [FATTO] Repository GitHub reale pubblicato
+   (https://github.com/DanPir/by-alarm-saig-ha-integration), placeholder
+   "CHANGEME" sostituiti. Manca ancora la sottomissione al default
+   repository list di HACS (per ora installabile solo come repository
+   custom).
 8. [FATTO] File con tutti i parametri dell'utente (tenuto FUORI da questo
    repository per sicurezza - non committare mai credenziali reali)
 9. Documentazione completa di tutto il lavoro (parzialmente coperta da
