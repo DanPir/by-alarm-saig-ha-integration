@@ -79,9 +79,11 @@ icons:
 
 Labels and icons are customizable: edit the `labels`/`icons` blocks with
 whatever text/icon you prefer (only `armed_home` has a custom icon by
-default). `show_zones: false` hides the "all zones closed" message next to
-the state (open/tampered zones are always shown regardless of this
-setting).
+default). If any zone is open or tampered, the three arm buttons (not
+Disarm) turn to the theme's warning color and their tooltip gets the list
+of affected zones appended — buttons are never disabled, since the
+protocol doesn't expose which arm mode(s) a given zone would actually
+block. Set `show_zones: false` to turn this warning off entirely.
 
 ## Available entities
 
