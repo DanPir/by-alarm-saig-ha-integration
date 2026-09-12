@@ -25,6 +25,13 @@
     }
   },
   "entity": {
+    "alarm_control_panel": {
+      "vimar_alarm": {
+        "state": {
+          "armed_home": "Armed perimeter"
+        }
+      }
+    },
     "binary_sensor": {
       "area_alarm": { "name": "Alarm active" },
       "area_alarm_memory": { "name": "Alarm memory" },
