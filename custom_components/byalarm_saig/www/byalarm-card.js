@@ -1,9 +1,10 @@
 /**
  * byalarm-card.js
  *
- * Wrapper attorno alla card nativa "alarm-panel" di Home Assistant: aspetto
- * identico all'originale, con l'aggiunta di tooltip personalizzati sui
- * pulsanti (via title/aria-label) e dell'elenco zone aperte/tamper sotto.
+ * Wrapper attorno alla card nativa "tile" + feature "alarm-modes" di Home
+ * Assistant: aspetto e dimensioni identici all'originale, con l'aggiunta di
+ * tooltip/etichette personalizzate sui pulsanti, un'icona custom per il modo
+ * "Perimetrale" e il riepilogo zone aperte/tamper accanto allo stato.
  *
  * Nessuna build necessaria: puro JavaScript, caricato direttamente.
  */
@@ -16,10 +17,14 @@ class ByAlarmCard extends HTMLElement {
     this._config = config;
     this._labels = {
       disarmed: "Disinserito",
-      armed_home: "In casa (INT)",
+      armed_home: "Perimetrale (INT)",
       armed_away: "Fuori casa (ON)",
       armed_night: "Notte (PAR)",
       ...(config.labels || {}),
+    };
+    this._icons = {
+      armed_home: "mdi:dots-square",
+      ...(config.icons || {}),
     };
     this._buildCard();
   }
@@ -39,27 +44,21 @@ class ByAlarmCard extends HTMLElement {
       this.innerHTML = "";
       this.appendChild(this._innerCard);
 
-      this._zonesEl = document.createElement("div");
-      this._zonesEl.style.cssText =
-        "padding: 0 16px 16px 16px; font-size: 0.85em; color: var(--secondary-text-color);";
-      this.appendChild(this._zonesEl);
-
       this._built = true;
-      this._updateZones();
       // il componente nativo fa il suo render interno in modo asincrono:
-      // aspettiamo un attimo prima di provare a patchare i tooltip, e poi
-      // ci riproviamo periodicamente finche' non troviamo i pulsanti.
-      this._scheduleTooltipPatch();
+      // aspettiamo un attimo prima di provare a patchare pulsanti/zone, e ci
+      // riproviamo periodicamente finche' non troviamo gli elementi giusti.
+      this._schedulePatch();
     })();
     return this._buildingPromise;
   }
 
-  _scheduleTooltipPatch(attempt = 0) {
-    clearTimeout(this._tooltipTimer);
-    this._tooltipTimer = setTimeout(() => {
-      const done = this._patchTooltips();
+  _schedulePatch(attempt = 0) {
+    clearTimeout(this._patchTimer);
+    this._patchTimer = setTimeout(() => {
+      const done = this._applyPatches();
       if (!done && attempt < 20) {
-        this._scheduleTooltipPatch(attempt + 1);
+        this._schedulePatch(attempt + 1);
       }
     }, 100);
   }
@@ -70,23 +69,22 @@ class ByAlarmCard extends HTMLElement {
       this._innerCard.hass = hass;
     }
     if (this._built) {
-      this._updateZones();
+      // il componente nativo puo' ri-renderizzare i propri elementi interni
+      // ad ogni aggiornamento di stato, perdendo le nostre patch: le
+      // riapplichiamo quindi ad ogni update (sono idempotenti ed economiche).
+      this._applyPatches();
     }
   }
 
-  _updateZones() {
-    const stateObj = this._hass?.states[this._config.entity];
-    if (!stateObj || !this._zonesEl) return;
-    const openZones = stateObj.attributes.zone_aperte || [];
-    const tamperZones = stateObj.attributes.zone_tamper || [];
-    let html = "";
-    if (openZones.length) {
-      html += `<div style="color: var(--error-color, #db4437); font-weight:500;">Aperte: ${openZones.join(", ")}</div>`;
-    }
-    if (tamperZones.length) {
-      html += `<div style="color: var(--error-color, #db4437); font-weight:500;">Tamper: ${tamperZones.join(", ")}</div>`;
-    }
-    this._zonesEl.innerHTML = html || (this._config.show_zones === false ? "" : "<div>Tutte le zone chiuse</div>");
+  /**
+   * Applica sia le patch statiche (tooltip/icone dei pulsanti) sia
+   * l'aggiornamento del riepilogo zone. Ritorna true se entrambe sono
+   * andate a buon fine (cioe' gli elementi target esistono gia' nel DOM).
+   */
+  _applyPatches() {
+    const optionsPatched = this._patchOptions();
+    const zonesPatched = this._patchZonesInfo();
+    return optionsPatched && zonesPatched;
   }
 
   /**
@@ -94,12 +92,14 @@ class ByAlarmCard extends HTMLElement {
    * con "features" nidifica piu' livelli di componenti) le opzioni della
    * fila di inserimento (ha-control-select le rende come
    * `[role="radio"] id="option-<mode>"`, dove <mode> combacia con le chiavi
-   * di `this._labels`) e ne sovrascrive title/aria-label. Usare l'id invece
-   * dell'icona e' necessario perche' le icone qui sono renderizzate con un
-   * path SVG raw (nessun attributo "icon" leggibile). Ritorna true se ha
-   * trovato ed etichettato almeno un elemento.
+   * di `this._labels`/`this._icons`) e ne sovrascrive title/aria-label e,
+   * dove configurata, l'icona. Usare l'id invece dell'icona per il
+   * riconoscimento della modalita' e' necessario perche' le icone native qui
+   * sono renderizzate con un path SVG raw (nessun attributo "icon"
+   * leggibile). Ritorna true se ha trovato ed etichettato almeno un
+   * elemento.
    */
-  _patchTooltips() {
+  _patchOptions() {
     if (!this._innerCard) return false;
 
     const options = this._deepQueryAll(this._innerCard, '[role="radio"][id^="option-"]');
@@ -109,12 +109,65 @@ class ByAlarmCard extends HTMLElement {
     options.forEach((optEl) => {
       const mode = optEl.id.replace(/^option-/, "");
       const label = this._labels[mode];
-      if (!label) return;
-      optEl.title = label;
-      optEl.setAttribute("aria-label", label);
-      labeled++;
+      if (label) {
+        optEl.title = label;
+        optEl.setAttribute("aria-label", label);
+        labeled++;
+      }
+
+      const iconName = this._icons[mode];
+      if (iconName) {
+        const currentIcon = optEl.querySelector("ha-svg-icon, ha-icon");
+        const alreadyPatched = currentIcon && currentIcon.tagName === "HA-ICON" && currentIcon.icon === iconName;
+        if (currentIcon && !alreadyPatched) {
+          const replacement = document.createElement("ha-icon");
+          replacement.icon = iconName;
+          currentIcon.replaceWith(replacement);
+        }
+      }
     });
     return labeled > 0;
+  }
+
+  /**
+   * Crea (una sola volta) e aggiorna uno <span slot="secondary"> aggiuntivo
+   * dentro <ha-tile-info>, cosi' il riepilogo zone compare accanto/sotto lo
+   * stato ("Disattivo") invece che sotto l'intera card. Aggiunto come
+   * fratello dello <span> nativo (non modificato), cosi' i ri-render interni
+   * della tile card non lo cancellano.
+   */
+  _patchZonesInfo() {
+    if (!this._innerCard) return false;
+
+    const info = this._deepQueryAll(this._innerCard, "ha-tile-info")[0];
+    if (!info) return false;
+
+    if (!this._zonesEl || this._zonesEl.parentElement !== info) {
+      this._zonesEl = document.createElement("span");
+      this._zonesEl.setAttribute("slot", "secondary");
+      this._zonesEl.className = "byalarm-zones-info";
+      info.appendChild(this._zonesEl);
+    }
+
+    const stateObj = this._hass?.states[this._config.entity];
+    if (!stateObj) return true;
+
+    const openZones = stateObj.attributes.zone_aperte || [];
+    const tamperZones = stateObj.attributes.zone_tamper || [];
+    const parts = [];
+    if (openZones.length) parts.push(`Aperte: ${openZones.join(", ")}`);
+    if (tamperZones.length) parts.push(`Tamper: ${tamperZones.join(", ")}`);
+
+    const hasIssue = parts.length > 0;
+    let text = parts.join(" · ");
+    if (!text && this._config.show_zones !== false) {
+      text = "Tutte le zone chiuse";
+    }
+
+    this._zonesEl.textContent = text ? ` · ${text}` : "";
+    this._zonesEl.style.color = hasIssue ? "var(--error-color, #db4437)" : "var(--secondary-text-color)";
+    this._zonesEl.style.fontWeight = hasIssue ? "500" : "normal";
+    return true;
   }
 
   /**
@@ -137,7 +190,20 @@ class ByAlarmCard extends HTMLElement {
   }
 
   getCardSize() {
-    return (this._innerCard && this._innerCard.getCardSize ? this._innerCard.getCardSize() : 4) + 1;
+    return this._innerCard && this._innerCard.getCardSize ? this._innerCard.getCardSize() : 4;
+  }
+
+  /**
+   * Delega alla card "tile" nativa: senza questo, nelle dashboard a
+   * sezioni/griglia Home Assistant non sa quanto e' larga di default questa
+   * card custom e le assegna una larghezza generica (piu' larga
+   * dell'originale).
+   */
+  getGridOptions() {
+    if (this._innerCard && this._innerCard.getGridOptions) {
+      return this._innerCard.getGridOptions();
+    }
+    return { columns: 6, rows: 2, min_columns: 6, min_rows: 2 };
   }
 
   static getStubConfig(hass) {

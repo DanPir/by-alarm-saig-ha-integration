@@ -70,14 +70,18 @@ entity: alarm_control_panel.vimar_by_alarm_sirene_2_villetta_3
 show_zones: true
 labels:
   disarmed: "Disarmed"
-  armed_home: "Home (INT)"
+  armed_home: "Perimeter (INT)"
   armed_away: "Away (ON)"
   armed_night: "Night (PAR)"
+icons:
+  armed_home: "mdi:dots-square"
 ```
 
-Labels are customizable: edit the `labels` block with whatever text you
-prefer. `show_zones: false` hides the list of open/tampered zones below the
-buttons.
+Labels and icons are customizable: edit the `labels`/`icons` blocks with
+whatever text/icon you prefer (only `armed_home` has a custom icon by
+default). `show_zones: false` hides the "all zones closed" message next to
+the state (open/tampered zones are always shown regardless of this
+setting).
 
 ## Available entities
 
