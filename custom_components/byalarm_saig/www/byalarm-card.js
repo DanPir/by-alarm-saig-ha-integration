@@ -4,7 +4,8 @@
  * Wrapper attorno alla card nativa "tile" + feature "alarm-modes" di Home
  * Assistant: aspetto e dimensioni identici all'originale, con l'aggiunta di
  * tooltip/etichette personalizzate sui pulsanti, un'icona custom per il modo
- * "Perimetrale" e il riepilogo zone aperte/tamper accanto allo stato.
+ * "Perimetrale" e un avviso (icona arancione + elenco zone nel tooltip) sui
+ * pulsanti di inserimento quando ci sono zone aperte o in tamper.
  *
  * Nessuna build necessaria: puro JavaScript, caricato direttamente.
  */
@@ -77,14 +78,12 @@ class ByAlarmCard extends HTMLElement {
   }
 
   /**
-   * Applica sia le patch statiche (tooltip/icone dei pulsanti) sia
-   * l'aggiornamento del riepilogo zone. Ritorna true se entrambe sono
-   * andate a buon fine (cioe' gli elementi target esistono gia' nel DOM).
+   * Applica le patch (tooltip/icone/avviso zone) ai pulsanti. Ritorna true
+   * se gli elementi target esistono gia' nel DOM (per far smettere il
+   * retry di _schedulePatch).
    */
   _applyPatches() {
-    const optionsPatched = this._patchOptions();
-    const zonesPatched = this._patchZonesInfo();
-    return optionsPatched && zonesPatched;
+    return this._patchOptions();
   }
 
   /**
@@ -92,12 +91,17 @@ class ByAlarmCard extends HTMLElement {
    * con "features" nidifica piu' livelli di componenti) le opzioni della
    * fila di inserimento (ha-control-select le rende come
    * `[role="radio"] id="option-<mode>"`, dove <mode> combacia con le chiavi
-   * di `this._labels`/`this._icons`) e ne sovrascrive title/aria-label e,
-   * dove configurata, l'icona. Usare l'id invece dell'icona per il
-   * riconoscimento della modalita' e' necessario perche' le icone native qui
-   * sono renderizzate con un path SVG raw (nessun attributo "icon"
-   * leggibile). Ritorna true se ha trovato ed etichettato almeno un
-   * elemento.
+   * di `this._labels`/`this._icons`) e ne sovrascrive title/aria-label,
+   * dove configurata l'icona, e - se ci sono zone aperte/tamper - colora
+   * l'icona dei pulsanti di inserimento (non "Disinserito") di arancione,
+   * aggiungendo l'elenco delle zone al tooltip. Il protocollo non espone
+   * quali zone blocchino quale specifica modalita' (verificato via dump
+   * live della discovery: nessun campo di raggruppamento), quindi l'avviso
+   * e' lo stesso su tutti e tre i pulsanti di inserimento, senza
+   * disabilitarli. Usare l'id invece dell'icona per il riconoscimento
+   * della modalita' e' necessario perche' le icone native qui sono
+   * renderizzate con un path SVG raw (nessun attributo "icon" leggibile).
+   * Ritorna true se ha trovato ed etichettato almeno un elemento.
    */
   _patchOptions() {
     if (!this._innerCard) return false;
@@ -105,15 +109,19 @@ class ByAlarmCard extends HTMLElement {
     const options = this._deepQueryAll(this._innerCard, '[role="radio"][id^="option-"]');
     if (!options.length) return false;
 
+    const stateObj = this._hass?.states[this._config.entity];
+    const openZones = (this._config.show_zones !== false && stateObj?.attributes.zone_aperte) || [];
+    const tamperZones = (this._config.show_zones !== false && stateObj?.attributes.zone_tamper) || [];
+    const warningParts = [];
+    if (openZones.length) warningParts.push(`Zone aperte: ${openZones.join(", ")}`);
+    if (tamperZones.length) warningParts.push(`Zone in tamper: ${tamperZones.join(", ")}`);
+    const warningText = warningParts.join(" · ");
+
     let labeled = 0;
     options.forEach((optEl) => {
       const mode = optEl.id.replace(/^option-/, "");
-      const label = this._labels[mode];
-      if (label) {
-        optEl.title = label;
-        optEl.setAttribute("aria-label", label);
-        labeled++;
-      }
+      const isArmButton = mode !== "disarmed";
+      const showWarning = isArmButton && warningText.length > 0;
 
       const iconName = this._icons[mode];
       if (iconName) {
@@ -125,51 +133,21 @@ class ByAlarmCard extends HTMLElement {
           currentIcon.replaceWith(replacement);
         }
       }
+
+      const label = this._labels[mode];
+      if (label) {
+        const finalLabel = showWarning ? `${label} — ${warningText}` : label;
+        optEl.title = finalLabel;
+        optEl.setAttribute("aria-label", finalLabel);
+        labeled++;
+      }
+
+      const iconEl = optEl.querySelector("ha-svg-icon, ha-icon");
+      if (iconEl) {
+        iconEl.style.color = showWarning ? "var(--warning-color, #ff9800)" : "";
+      }
     });
     return labeled > 0;
-  }
-
-  /**
-   * Crea (una sola volta) e aggiorna un <div> aggiuntivo, ultimo figlio
-   * "light DOM" di <ha-card>: lo shadow root di ha-card e' un semplice
-   * <slot> di default, quindi qualunque figlio in piu' che aggiungiamo
-   * viene renderizzato in fondo alla card, sotto la riga dei pulsanti
-   * (icona/nome/stato e la feature alarm-modes sono dentro
-   * <ha-tile-container>, che resta il primo figlio). Non tocca nulla che
-   * la tile card gestisce, quindi sopravvive ai suoi ri-render interni.
-   */
-  _patchZonesInfo() {
-    if (!this._innerCard) return false;
-
-    const card = this._deepQueryAll(this._innerCard, "ha-card")[0];
-    if (!card) return false;
-
-    if (!this._zonesEl || this._zonesEl.parentElement !== card) {
-      this._zonesEl = document.createElement("div");
-      this._zonesEl.className = "byalarm-zones-info";
-      this._zonesEl.style.cssText = "padding: 0 16px 16px 16px; font-size: 0.85em;";
-      card.appendChild(this._zonesEl);
-    }
-
-    const stateObj = this._hass?.states[this._config.entity];
-    if (!stateObj) return true;
-
-    const openZones = stateObj.attributes.zone_aperte || [];
-    const tamperZones = stateObj.attributes.zone_tamper || [];
-    const parts = [];
-    if (openZones.length) parts.push(`Aperte: ${openZones.join(", ")}`);
-    if (tamperZones.length) parts.push(`Tamper: ${tamperZones.join(", ")}`);
-
-    const hasIssue = parts.length > 0;
-    let text = parts.join(" · ");
-    if (!text && this._config.show_zones !== false) {
-      text = "Tutte le zone chiuse";
-    }
-
-    this._zonesEl.textContent = text;
-    this._zonesEl.style.color = hasIssue ? "var(--error-color, #db4437)" : "var(--secondary-text-color)";
-    this._zonesEl.style.fontWeight = hasIssue ? "500" : "normal";
-    return true;
   }
 
   /**
@@ -192,7 +170,7 @@ class ByAlarmCard extends HTMLElement {
   }
 
   getCardSize() {
-    return (this._innerCard && this._innerCard.getCardSize ? this._innerCard.getCardSize() : 4) + 1;
+    return this._innerCard && this._innerCard.getCardSize ? this._innerCard.getCardSize() : 4;
   }
 
   /**
