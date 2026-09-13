@@ -2,3 +2,6 @@
 parametri_byalarm.txt
 *.secrets
 .env
+
+# note personali, non destinate al repository
+docs/writeup.md
