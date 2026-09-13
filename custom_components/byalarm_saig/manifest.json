@@ -1,7 +1,7 @@
 {
   "domain": "byalarm_saig",
   "name": "Vimar By-alarm (SAIG)",
-  "codeowners": ["@daniele"],
+  "codeowners": ["@DanPir"],
   "config_flow": true,
   "dependencies": ["http", "frontend", "lovelace"],
   "documentation": "https://github.com/DanPir/by-alarm-saig-ha-integration",
