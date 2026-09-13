@@ -5,9 +5,9 @@
   "config_flow": true,
   "dependencies": ["http", "frontend", "lovelace"],
   "documentation": "https://github.com/DanPir/by-alarm-saig-ha-integration",
-  "issue_tracker": "https://github.com/DanPir/by-alarm-saig-ha-integration/issues",
-  "iot_class": "local_polling",
   "integration_type": "hub",
+  "iot_class": "local_polling",
+  "issue_tracker": "https://github.com/DanPir/by-alarm-saig-ha-integration/issues",
   "requirements": ["cryptography>=41.0.0"],
   "version": "0.9.0"
 }
