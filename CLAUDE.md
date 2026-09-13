@@ -155,11 +155,18 @@ python tools/byalarm_sai_client.py --host <IP> --username <email> \
    password", con `tools/decrypt_view_pro_password.py` funzionante e
    testato contro un `associations.json` reale). Manca ancora un
    disclaimer generale su compatibilita'/sicurezza non garantite.
-7. [FATTO] Repository GitHub reale pubblicato
+7. Repository GitHub reale pubblicato
    (https://github.com/DanPir/by-alarm-saig-ha-integration), placeholder
-   "CHANGEME" sostituiti. Manca ancora la sottomissione al default
-   repository list di HACS (per ora installabile solo come repository
-   custom).
+   "CHANGEME" sostituiti. Requisiti tecnici per la sottomissione al
+   default repository list di HACS: [FATTO] LICENSE (MIT), [FATTO]
+   workflow di validazione HACS+hassfest (`.github/workflows/validate.yml`),
+   [FATTO] `codeowners` corretto (`@DanPir`). Restano da fare, fuori
+   dalla portata di questa sessione (serve l'interfaccia web di GitHub o
+   `gh` autenticato, non disponibili qui): impostare descrizione e topics
+   del repository su GitHub, creare una release/tag corrispondente alla
+   versione del manifest, e infine aprire la PR di sottomissione a
+   https://github.com/hacs/default. Per ora installabile solo come
+   repository custom in HACS (gia' funzionante).
 8. [FATTO] File con tutti i parametri dell'utente (tenuto FUORI da questo
    repository per sicurezza - non committare mai credenziali reali)
 9. Documentazione completa di tutto il lavoro (parzialmente coperta da
