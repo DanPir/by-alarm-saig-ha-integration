@@ -12,6 +12,16 @@
           "device_password": "Device password",
           "pin": "User code (keypad PIN)"
         }
+      },
+      "reauth_confirm": {
+        "title": "Credentials rejected by the gateway",
+        "description": "The gateway {host} rejected the login. Re-enter your updated credentials.",
+        "data": {
+          "username": "Vimar account email",
+          "useruid": "User UID (from the account token)",
+          "device_password": "Device password",
+          "pin": "User code (keypad PIN)"
+        }
       }
     },
     "error": {
@@ -21,7 +31,8 @@
       "unknown": "Unexpected error. Check the Home Assistant logs for details."
     },
     "abort": {
-      "already_configured": "This device is already configured."
+      "already_configured": "This device is already configured.",
+      "reauth_successful": "Credentials updated successfully."
     }
   },
   "entity": {

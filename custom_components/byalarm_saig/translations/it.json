@@ -12,6 +12,16 @@
           "device_password": "Password del dispositivo",
           "pin": "Codice utente (PIN tastiera)"
         }
+      },
+      "reauth_confirm": {
+        "title": "Credenziali rifiutate dal gateway",
+        "description": "Il gateway {host} ha rifiutato il login. Reinserisci le credenziali aggiornate.",
+        "data": {
+          "username": "Email dell'account Vimar",
+          "useruid": "User UID (dal token dell'account)",
+          "device_password": "Password del dispositivo",
+          "pin": "Codice utente (PIN tastiera)"
+        }
       }
     },
     "error": {
@@ -21,7 +31,8 @@
       "unknown": "Errore imprevisto. Controlla i log di Home Assistant per i dettagli."
     },
     "abort": {
-      "already_configured": "Questo dispositivo e' gia' configurato."
+      "already_configured": "Questo dispositivo e' gia' configurato.",
+      "reauth_successful": "Credenziali aggiornate con successo."
     }
   },
   "entity": {
