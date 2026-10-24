@@ -135,10 +135,11 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             else:
                 # source_uid e area_idsf restano quelli originali: il test di
                 # validazione ne genera di nuovi solo per la prova di login.
-                changed = self.hass.config_entries.async_update_entry(entry, data=candidate)
-                if not changed:
-                    await self.hass.config_entries.async_reload(entry.entry_id)
-                return self.async_abort(reason="reauth_successful")
+                # Una entry il cui setup e' fallito con ConfigEntryAuthFailed
+                # non ha listener di update: il reload va fatto esplicitamente.
+                return self.async_update_reload_and_abort(
+                    entry, data=candidate, reason="reauth_successful"
+                )
 
         schema = vol.Schema(
             {

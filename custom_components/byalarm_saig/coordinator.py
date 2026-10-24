@@ -5,9 +5,16 @@ import logging
 from datetime import timedelta
 
 from homeassistant.core import HomeAssistant
+from homeassistant.exceptions import ConfigEntryAuthFailed
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 
-from .api import ByAlarmClient, ByAlarmConnectionError, ByAlarmError, SystemStatus
+from .api import (
+    ByAlarmAuthError,
+    ByAlarmClient,
+    ByAlarmConnectionError,
+    ByAlarmError,
+    SystemStatus,
+)
 from .const import DEFAULT_SCAN_INTERVAL
 
 _LOGGER = logging.getLogger(__name__)
@@ -29,6 +36,10 @@ class ByAlarmCoordinator(DataUpdateCoordinator[SystemStatus]):
     async def _async_update_data(self) -> SystemStatus:
         try:
             return await self.client.async_get_status()
+        except ByAlarmAuthError as err:
+            # il gateway rifiuta le credenziali salvate (es. password del
+            # dispositivo rigenerata): ferma il polling e avvia il reauth
+            raise ConfigEntryAuthFailed(str(err)) from err
         except (ByAlarmConnectionError, ByAlarmError) as err:
             raise UpdateFailed(f"Errore comunicando con il gateway: {err}") from err
 

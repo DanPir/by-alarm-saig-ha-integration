@@ -143,8 +143,6 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         await client.disconnect()
         raise
 
-    entry.async_on_unload(entry.add_update_listener(_async_update_listener))
-
     return True
 
 
@@ -155,8 +153,3 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         coordinator: ByAlarmCoordinator = hass.data[DOMAIN].pop(entry.entry_id)
         await coordinator.client.disconnect()
     return unload_ok
-
-
-async def _async_update_listener(hass: HomeAssistant, entry: ConfigEntry) -> None:
-    """Ricarica l'integrazione se la configurazione cambia."""
-    await hass.config_entries.async_reload(entry.entry_id)
