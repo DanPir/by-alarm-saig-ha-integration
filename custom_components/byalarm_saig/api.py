@@ -37,6 +37,7 @@ PROTOCOL_VERSION = "2.2"
 
 KEEPALIVE_INTERVAL = 25  # secondi (dal codice originale: TimeSpan 0:0:25)
 REQUEST_TIMEOUT = 15
+CONNECT_TIMEOUT = 10  # secondi per TLS e per l'handshake WebSocket
 
 ARM_COMMANDS = {
     "Tot": ("SFE_Cmd_On", "On"),
@@ -230,11 +231,34 @@ class ByAlarmClient:
         return payload
 
     async def _open_ws(self):
+        """Apre TLS + handshake WebSocket; ogni errore di rete diventa ByAlarmConnectionError."""
         ctx = _make_ssl_context()
-        reader, writer = await asyncio.open_connection(
-            self.host, self.port, ssl=ctx, server_hostname=self.host
-        )
-        await self._ws_handshake(reader, writer)
+        try:
+            reader, writer = await asyncio.wait_for(
+                asyncio.open_connection(self.host, self.port, ssl=ctx, server_hostname=self.host),
+                timeout=CONNECT_TIMEOUT,
+            )
+        except (OSError, asyncio.TimeoutError) as err:
+            raise ByAlarmConnectionError(
+                f"impossibile connettersi a {self.host}:{self.port}: {err!r}"
+            ) from err
+
+        handshake_ok = False
+        try:
+            await asyncio.wait_for(self._ws_handshake(reader, writer), timeout=CONNECT_TIMEOUT)
+            handshake_ok = True
+        except (
+            OSError,
+            asyncio.TimeoutError,
+            asyncio.IncompleteReadError,
+            asyncio.LimitOverrunError,
+        ) as err:
+            raise ByAlarmConnectionError(
+                f"handshake WebSocket con {self.host}:{self.port} fallito: {err!r}"
+            ) from err
+        finally:
+            if not handshake_ok:
+                writer.close()
         return reader, writer
 
     # -- messaggi applicativi --------------------------------------------------
@@ -263,8 +287,13 @@ class ByAlarmClient:
         fut: asyncio.Future = asyncio.get_event_loop().create_future()
         self._pending[msgid] = fut
 
-        self._writer.write(_build_ws_frame(json.dumps(msg)))
-        await self._writer.drain()
+        try:
+            self._writer.write(_build_ws_frame(json.dumps(msg)))
+            await self._writer.drain()
+        except OSError as err:
+            self._pending.pop(msgid, None)
+            self.connected = False
+            raise ByAlarmConnectionError(f"invio di '{function}' fallito: {err!r}") from err
 
         try:
             resp = await asyncio.wait_for(fut, timeout=timeout)
@@ -323,61 +352,77 @@ class ByAlarmClient:
     # -- ciclo di vita -----------------------------------------------------------
 
     async def connect(self) -> None:
-        """Apre la connessione: session (temporanea) -> attach (definitiva)."""
+        """Apre la connessione: session (temporanea) -> attach (definitiva).
+
+        Errori di rete -> ByAlarmConnectionError, credenziali rifiutate ->
+        ByAlarmAuthError. Se qualcosa fallisce a meta', socket e task creati
+        finora vengono chiusi, cosi' un retry non lascia risorse appese.
+        """
+        # chiude eventuali resti di una sessione precedente caduta
+        await self.disconnect()
+
         # passo 1: "session", su una connessione temporanea, come fa il client ufficiale
         reader1, writer1 = await self._open_ws()
-        session_msg = {
-            "type": "request", "function": "session",
-            "source": self.source_uid, "target": self.duid,
-            "token": _gen_key(12), "msgid": "1",
-            "args": [{"communication": {
-                "ipaddress": self._local_ip(), "ipport": 9999,
-                "communicationmode": 4, "requireencryption": True,
-            }}],
-            "params": [],
-        }
-        writer1.write(_build_ws_frame(json.dumps(session_msg)))
-        await writer1.drain()
         try:
-            await asyncio.wait_for(self._ws_recv(reader1), timeout=10)
-        except Exception:  # noqa: BLE001 - risposta ignorata, serve solo a completare la fase
-            pass
-        writer1.close()
+            session_msg = {
+                "type": "request", "function": "session",
+                "source": self.source_uid, "target": self.duid,
+                "token": _gen_key(12), "msgid": "1",
+                "args": [{"communication": {
+                    "ipaddress": self._local_ip(), "ipport": 9999,
+                    "communicationmode": 4, "requireencryption": True,
+                }}],
+                "params": [],
+            }
+            try:
+                writer1.write(_build_ws_frame(json.dumps(session_msg)))
+                await writer1.drain()
+            except OSError as err:
+                raise ByAlarmConnectionError(f"invio di 'session' fallito: {err!r}") from err
+            try:
+                await asyncio.wait_for(self._ws_recv(reader1), timeout=10)
+            except Exception:  # noqa: BLE001 - risposta ignorata, serve solo a completare la fase
+                pass
+        finally:
+            writer1.close()
 
         # passo 2: nuova connessione per l'attach vero e proprio
         self._reader, self._writer = await self._open_ws()
         self._closing = False
         self._msgid_counter = 0
-        self._reader_task = asyncio.create_task(self._reader_loop())
-
-        attach_args = [{
-            "credential": {
-                "username": self.username,
-                "useruid": self.useruid,
-                "password": self.device_password,
-            },
-            "clientinfo": {
-                "manufacturertag": MANUFACTURER_TAG,
-                "clienttag": CLIENT_TAG,
-                "sfmodelversion": SF_MODEL_VERSION,
-                "lang": "it",
-                "protocolversion": PROTOCOL_VERSION,
-            },
-            "communication": {"ipaddress": self.host},
-        }]
         try:
-            resp = await self._send_and_wait("attach", args=attach_args)
-        except ByAlarmError as err:
+            self._reader_task = asyncio.create_task(self._reader_loop())
+
+            attach_args = [{
+                "credential": {
+                    "username": self.username,
+                    "useruid": self.useruid,
+                    "password": self.device_password,
+                },
+                "clientinfo": {
+                    "manufacturertag": MANUFACTURER_TAG,
+                    "clienttag": CLIENT_TAG,
+                    "sfmodelversion": SF_MODEL_VERSION,
+                    "lang": "it",
+                    "protocolversion": PROTOCOL_VERSION,
+                },
+                "communication": {"ipaddress": self.host},
+            }]
+            try:
+                resp = await self._send_and_wait("attach", args=attach_args)
+            except ByAlarmError as err:
+                raise ByAlarmAuthError(f"Attach rifiutato dal gateway (errore {err.code})") from err
+
+            result = resp["result"][0]
+            self._session_token = result["token"]
+            self._public_key_pem = result["secureinfo"]["publickey"]
+            self._sai_counter = 0
+            self.connected = True
+
+            self._keepalive_task = asyncio.create_task(self._keepalive_loop())
+        except BaseException:
             await self.disconnect()
-            raise ByAlarmAuthError(f"Attach rifiutato dal gateway (errore {err.code})") from err
-
-        result = resp["result"][0]
-        self._session_token = result["token"]
-        self._public_key_pem = result["secureinfo"]["publickey"]
-        self._sai_counter = 0
-        self.connected = True
-
-        self._keepalive_task = asyncio.create_task(self._keepalive_loop())
+            raise
 
     async def disconnect(self) -> None:
         self._closing = True

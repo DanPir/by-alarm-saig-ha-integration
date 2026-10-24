@@ -128,12 +128,20 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     except ByAlarmConnectionError as err:
         raise ConfigEntryNotReady(str(err)) from err
 
-    coordinator = ByAlarmCoordinator(hass, client, data[CONF_AREA_IDSF])
-    await coordinator.async_config_entry_first_refresh()
+    # da qui in poi il client e' connesso: se il setup fallisce (es. primo
+    # refresh -> ConfigEntryNotReady) va chiuso, altrimenti socket e task
+    # restano vivi e ogni retry ne accumula un altro set.
+    try:
+        coordinator = ByAlarmCoordinator(hass, client, data[CONF_AREA_IDSF])
+        await coordinator.async_config_entry_first_refresh()
 
-    hass.data.setdefault(DOMAIN, {})[entry.entry_id] = coordinator
+        hass.data.setdefault(DOMAIN, {})[entry.entry_id] = coordinator
 
-    await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
+        await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
+    except BaseException:
+        hass.data.get(DOMAIN, {}).pop(entry.entry_id, None)
+        await client.disconnect()
+        raise
 
     entry.async_on_unload(entry.add_update_listener(_async_update_listener))
 
