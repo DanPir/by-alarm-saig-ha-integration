@@ -24,11 +24,16 @@ custom_components/byalarm_saig/   integrazione Home Assistant (HACS-ready)
   binary_sensor.py                zone + stato sistema
   www/byalarm-card.js             card Lovelace custom (incapsula la card
                                    nativa "tile" + feature "alarm-modes",
-                                   aggiunge tooltip personalizzati + zone aperte)
+                                   aggiunge tooltip, icona custom per
+                                   "Perimetrale" e avviso arancione + elenco
+                                   zone nel tooltip se ci sono zone aperte)
+  brand/icon.png, icon@2x.png     icona richiesta dalla validazione HACS
   manifest.json, strings.json, translations/
 tools/byalarm_sai_client.py       libreria standalone sincrona, per test/debug
                                    da riga di comando senza Home Assistant
-hacs.json, README.md
+tools/decrypt_view_pro_password.py  decifra associations.json di View Pro
+.github/workflows/validate.yml    validazione HACS + hassfest (anche ogni notte)
+hacs.json, README.md, LICENSE (MIT)
 ```
 
 ## Protocollo (riassunto tecnico)
@@ -113,6 +118,32 @@ hacs.json, README.md
   all'evento `EVENT_HOMEASSISTANT_STARTED` quando si parte da un boot
   freddo (altrimenti si rischia di creare una risorsa duplicata invece di
   aggiornare quella esistente - successo dal vivo durante lo sviluppo).
+- Gestione errori (richiesta in review da frenck su hacs/default#10954):
+  - `ByAlarmAuthError` (credenziali rifiutate) -> `ConfigEntryAuthFailed`
+    sia in `async_setup_entry` sia nel coordinator a runtime (ferma il
+    polling e avvia il reauth). `config_flow.py` ha `async_step_reauth`/
+    `reauth_confirm`, che chiude con `async_update_reload_and_abort`
+    (una entry con setup fallito non ha update listener: per questo non
+    ce n'e' piu' nessuno, non c'e' options flow).
+  - Ogni errore di rete (`OSError` incl. `SSLError`/`gaierror`,
+    `TimeoutError`, `IncompleteReadError`, `LimitOverrunError`) diventa
+    `ByAlarmConnectionError` in `_open_ws` (timeout 10s su TLS e
+    handshake) e in `_send_and_wait` -> `ConfigEntryNotReady` al setup,
+    `cannot_connect` nei flow.
+  - Se qualcosa fallisce dopo che `client.connect()` e' riuscita, il
+    client va chiuso (reader/keepalive/socket) prima di rilanciare: lo
+    fanno `connect()` stessa e `async_setup_entry`.
+  - Non gestito: un rifiuto delle credenziali proprio durante un comando
+    arm/disarm (non durante il polling) arriva ancora grezzo all'utente e
+    non avvia il reauth.
+- `cryptography` NON va dichiarata in `manifest.json` (e' dipendenza di HA
+  stesso, hassfest la rifiuta; l'import in `api.py` funziona comunque). Le
+  chiavi del manifest devono essere ordinate: `domain`, `name`, poi
+  alfabetico (altrimenti hassfest fallisce).
+- `hacs.json` richiede HA >= 2026.10.3, l'unica versione su cui e' stato
+  provato (`alarm_control_panel.py` importa `AlarmControlPanelState`, che
+  non esiste nelle versioni vecchie). Si puo' abbassare se qualcuno
+  conferma una versione precedente.
 
 ## Come testare senza Home Assistant
 
@@ -155,29 +186,45 @@ python tools/byalarm_sai_client.py --host <IP> --username <email> \
    password", con `tools/decrypt_view_pro_password.py` funzionante e
    testato contro un `associations.json` reale). Manca ancora un
    disclaimer generale su compatibilita'/sicurezza non garantite.
-7. Repository GitHub reale pubblicato
-   (https://github.com/DanPir/by-alarm-saig-ha-integration), placeholder
-   "CHANGEME" sostituiti. Requisiti tecnici per la sottomissione al
-   default repository list di HACS: [FATTO] LICENSE (MIT), [FATTO]
-   workflow di validazione HACS+hassfest (`.github/workflows/validate.yml`),
-   [FATTO] `codeowners` corretto (`@DanPir`). Restano da fare, fuori
-   dalla portata di questa sessione (serve l'interfaccia web di GitHub o
-   `gh` autenticato, non disponibili qui): impostare descrizione e topics
-   del repository su GitHub, creare una release/tag corrispondente alla
-   versione del manifest, e infine aprire la PR di sottomissione a
-   https://github.com/hacs/default. Per ora installabile solo come
-   repository custom in HACS (gia' funzionante).
+7. [FATTO] Pubblicazione su HACS: repository
+   https://github.com/DanPir/by-alarm-saig-ha-integration, PR
+   https://github.com/hacs/default/pull/10954 approvata e unita da frenck
+   il 2026-10-24, quindi presente nella lista default (installabile senza
+   aggiungere il repository come custom). Ultima release: v0.9.6.
+   Processo seguito, utile per le prossime release: bump di versione in
+   `manifest.json`, commit + push, tag `vX.Y.Z`, attendere che HACS e
+   hassfest siano verdi, poi pubblicare la release su GitHub (stessa
+   versione del manifest). Non ri-eseguire vecchie run dalla pagina Actions:
+   rilanciano il vecchio commit. `gh` non e' installato; i passaggi su
+   GitHub si fanno dal Chrome gia' loggato (estensione claude-in-chrome).
 8. [FATTO] File con tutti i parametri dell'utente (tenuto FUORI da questo
    repository per sicurezza - non committare mai credenziali reali)
-9. Documentazione completa di tutto il lavoro (parzialmente coperta da
+9. [FATTO] Documentazione completa di tutto il lavoro (parzialmente coperta da
    questo file + i commenti nel codice; potrebbe servire un documento
    piu' esteso e discorsivo)
 10. [FATTO] Rimossa la variabile d'ambiente di debug (WEBVIEW2_ADDITIONAL_
     BROWSER_ARGUMENTS) e verificata l'esenzione di rete residua (innocua,
     gia' orfana)
-11. Nuova automazione (non legata all'integrazione By-alarm): notifica
+11. [FATTO] Nuova automazione (non legata all'integrazione By-alarm): notifica
     Telegram + notifica HA per apertura/chiusura della cassetta delle
     lettere (entita' Aqara "Cassetta Lettere")
+12. Supporto By-alarm Plus (centrale 03800-03802 + gateway 03812): richiesto
+    da Matteo2L in https://github.com/DanPir/by-alarm-saig-ha-integration/issues/2,
+    che ha una versione locale funzionante e propone una PR (rebase su
+    v0.9.3 o successiva). Risposta gia' pubblicata: PR benvenuta, purche'
+    rebased, senza cambiare il comportamento sulla SAIG (unique_id della
+    prima area invariato), con fixture anonimizzate e con arm/disarm sulla
+    Plus segnalati come non testati. Punto importante dell'issue: su Plus i
+    binary_sensor di sistema restano sempre "off" (i blocchi
+    `SS_SaiPlant_All_Saig2` hanno solo comandi), un falso senso di sicurezza.
+    Noi non abbiamo una Plus: possiamo solo fare test di regressione sulla
+    SAIG. Quando arriva la PR: revisionarla e provarla contro la SAIG
+    reale, poi rilasciare (dopo la merge, con bump di versione).
+13. Da fare appena il login del browser su Home Assistant e' disponibile
+    (la sessione e' scaduta; il login OIDC (SSO) dava "redirect_uri
+    non valido", funziona "Default login"): installare su HA le release
+    dalla v0.9.3 alla v0.9.6 (`[UPLOAD]` + riavvio) e provare dal vivo il
+    reauth (`async_update_reload_and_abort`), mai verificato dentro HA.
 
 ## Sicurezza / cose a cui fare attenzione
 
