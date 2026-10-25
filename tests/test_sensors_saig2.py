@@ -129,7 +129,7 @@ def setup(data):
 class TestSensorsSaig2(unittest.TestCase):
     def test_niente_sensori_generali_finti(self):
         ids = setup(status(plus()))
-        for finto in ("area_alarm_memory", "zone_tamper", "zone_mask", "device_tamper_alarm",
+        for finto in ("zone_tamper", "zone_mask", "device_tamper_alarm",
                       "device_tamper_alarm_memory", "maintenance"):
             self.assertNotIn(f"D_{finto}", ids)
         self.assertIn("D_area_alarm", ids)
@@ -164,6 +164,16 @@ class TestSensorsSaig2(unittest.TestCase):
         self.assertTrue(m.is_on)
         self.assertEqual((m._attr_translation_key, m._attr_translation_placeholders), ("zone_masked", {"zone": "Zona 5"}))
         self.assertFalse(m._attr_entity_registry_enabled_default)
+
+    def test_allarme_in_memoria_dalle_zone(self):
+        blocks = plus()
+        for b in blocks:
+            if b["sstype"] == "SS_Zone":
+                b["elements"] = [e for e in b["elements"] if e["sfetype"] != "SFE_State_AlarmInfo"] + [
+                    {"sfetype": "SFE_State_AlarmInfo", "value": "Memory"}]
+        ids = setup(status(blocks))
+        self.assertTrue(ids["D_area_alarm_memory"].is_on)
+        self.assertFalse(setup(status(plus()))["D_area_alarm_memory"].is_on)
 
     def test_allarme_in_corso_dalle_aree(self):
         ids = setup(status(plus(zone_alarm="[1]")))

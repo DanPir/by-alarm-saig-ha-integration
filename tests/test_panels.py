@@ -99,9 +99,10 @@ def area(idsf, name, insert, zones, zone_alarm="[]", modes="[]"):
         {"sfetype": "SFE_AvailableInsertMode", "value": modes}, {"sfetype": "SFE_Cmd_Insert", "value": ""}]}
 
 
-def zone(idsf, zid, name, opened=False):
+def zone(idsf, zid, name, opened=False, alarm_info="Idle"):
     return {"sstype": "SS_Zone", "idsf": idsf, "name": name, "elements": [
-        {"sfetype": "SFE_State_ZoneId", "value": str(zid)}, {"sfetype": "SFE_State_Opened", "value": str(opened)}]}
+        {"sfetype": "SFE_State_ZoneId", "value": str(zid)}, {"sfetype": "SFE_State_Opened", "value": str(opened)},
+        {"sfetype": "SFE_State_AlarmInfo", "value": alarm_info}]}
 
 
 def status(blocks):
@@ -220,8 +221,19 @@ class TestPanels(unittest.TestCase):
     def test_plus_niente_attributi_sempre_falsi(self):
         _, ents = setup(status(PLUS), 21001)
         attrs = ents[0].extra_state_attributes
-        for k in ("manutenzione", "allarme_in_memoria", "tamper_zona", "tamper_dispositivo"):
+        for k in ("manutenzione", "tamper_zona", "tamper_dispositivo"):
             self.assertNotIn(k, attrs)  # sulla Plus questi campi non esistono
+        self.assertFalse(attrs["allarme_in_memoria"])  # questo invece si', calcolato dalle zone
+
+    def test_plus_allarme_in_memoria_per_area(self):
+        blocks = [area(21001, "Area A", "Dis", "[1,2]"), area(21002, "Area B", "Dis", "[3]"),
+                  zone(22001, 1, "Zona 1"), zone(22002, 2, "Zona 2", alarm_info="Memory"), zone(22003, 3, "Zona 3")]
+        _, ents = setup(status(blocks), 21001)
+        self.assertEqual((ents[0].extra_state_attributes["allarme_in_memoria"],
+                          ents[0].extra_state_attributes["zone_in_memoria"]), (True, ["Zona 2"]))
+        self.assertEqual((ents[1].extra_state_attributes["allarme_in_memoria"],
+                          ents[1].extra_state_attributes["zone_in_memoria"]), (False, []))
+        self.assertEqual([e.alarm_state for e in ents], [S.DISARMED, S.DISARMED])  # memoria non e' allarme in corso
 
     def test_saig_allarme_solo_dal_campo_generale(self):
         # sulla SAIG originale l'elenco delle zone in allarme dell'area non cambia lo stato (come prima)

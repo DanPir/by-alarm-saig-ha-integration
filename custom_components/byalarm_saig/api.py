@@ -49,6 +49,7 @@ DISARM_COMMAND = ("SFE_Cmd_Dis", "Dis")
 # {"mode": "Tot"/"Dis"/"ParA".., "special": attivazione immediata, "forced", "inhibitZones"}
 # (stesso formato dell'app Vimar VIEW). I modi ammessi per il codice utente stanno in SFE_AvailableInsertMode.
 SAIG2_INSERT_COMMAND = "SFE_Cmd_Insert"
+ZONE_ALARM_MEMORY = "Memory"  # valore di SFE_State_AlarmInfo per una zona con allarme in memoria
 
 # Messaggi leggibili per i codici di errore piu' comuni (codice IPErrorType)
 ERROR_MESSAGES = {
@@ -578,6 +579,8 @@ class ByAlarmClient:
 
         if status.saig2:
             status.area_alarm = any(a.alarm for a in status.areas)
+            # sulla Plus la memoria d'allarme e' per zona: SFE_State_AlarmInfo Idle / Alarm / Memory
+            status.area_alarm_memory = any(z.alarm_info == ZONE_ALARM_MEMORY for z in status.zones)
         return status
 
     async def _do_area_action(self, idsf: int, sfetype: str, value: str) -> None:

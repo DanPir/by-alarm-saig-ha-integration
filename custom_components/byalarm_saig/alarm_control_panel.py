@@ -28,7 +28,7 @@ from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
-from .api import AreaStatus, ByAlarmError
+from .api import ZONE_ALARM_MEMORY, AreaStatus, ByAlarmError
 from .const import CONF_DUID, CONFIRM_TIMEOUT, DOMAIN
 from .coordinator import ByAlarmCoordinator
 
@@ -156,6 +156,10 @@ class ByAlarmPanel(CoordinatorEntity[ByAlarmCoordinator], AlarmControlPanelEntit
                 "tamper_dispositivo": status.device_tamper_alarm,
             })
         zones = [z for z in status.zones if not area.zone_ids or z.zone_id in area.zone_ids]
+        if status.saig2:  # memoria d'allarme per zona (SFE_State_AlarmInfo)
+            in_memoria = [z.name for z in zones if z.alarm_info == ZONE_ALARM_MEMORY]
+            attrs["allarme_in_memoria"] = bool(in_memoria)
+            attrs["zone_in_memoria"] = in_memoria
         attrs["zone_aperte"] = [z.name for z in zones if z.opened]
         attrs["zone_tamper"] = [z.name for z in zones if z.tamper]
         attrs["zone_escluse"] = [z.name for z in zones if z.excluded]

@@ -239,10 +239,13 @@ automatically:
 - control unit anomaly sensors (mains, battery, GSM/PSTN, tamper, ...) and
   tamper sensors for keypads and expansions; any value other than `Idle`
   turns the sensor on, and the raw value is available as an attribute
-- of the 7 general SAIG status sensors only "alarm" is kept, computed from
-  the areas: the Plus does not report the other fields, so they are not
-  created (and the matching panel attributes, such as maintenance, are
-  not shown)
+- of the 7 general SAIG status sensors only "alarm" (computed from the
+  areas) and "alarm memory" are kept. On the Plus the alarm memory is per
+  zone: `SFE_State_AlarmInfo` is `Idle`, `Alarm` or `Memory`, so "alarm
+  memory" is on when a zone is in `Memory`, and each area panel lists its
+  zones in memory. The Plus does not report the other fields
+  (maintenance, zone/device tamper, ...), so they are not created and the
+  matching panel attributes are not shown
 
 ## Arming mode mapping
 

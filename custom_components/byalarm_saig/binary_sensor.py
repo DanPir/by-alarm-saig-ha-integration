@@ -44,10 +44,10 @@ async def async_setup_entry(
     status: SystemStatus | None = coordinator.data
     saig2 = bool(status and status.saig2)
 
-    # Sulla By-alarm Plus i campi generali originali non esistono: resta solo "Allarme in corso",
-    # calcolato dalle aree; al loro posto anomalie centrale e tamper di tastiere/espansioni.
+    # Sulla By-alarm Plus i campi generali originali non esistono: restano "Allarme in corso" (dalle
+    # aree) e "Allarme in memoria" (dalle zone); al loro posto anomalie centrale e tamper di tastiere/espansioni.
     for description in SYSTEM_SENSORS:
-        if not saig2 or description.key == "area_alarm":
+        if not saig2 or description.key in ("area_alarm", "area_alarm_memory"):
             entities.append(ByAlarmSystemSensor(coordinator, entry, duid, description))
 
     if status:
