@@ -91,6 +91,7 @@ class AreaStatus:
     status: str
     zone_alarms: list = field(default_factory=list)
     zone_ids: list = field(default_factory=list)
+    alarm: bool = False  # area con almeno una zona in allarme (By-alarm Plus, blocchi Saig2)
 
 
 @dataclass
@@ -107,6 +108,15 @@ class ZoneStatus:
 
 
 @dataclass
+class DeviceStatus:
+    """Tastiera o espansione (By-alarm Plus): per ora solo il tamper."""
+    idsf: int
+    name: str
+    kind: str  # "keyboard" / "expansion"
+    tamper: str  # "Idle" = a riposo
+
+
+@dataclass
 class SystemStatus:
     maintenance: bool
     area_armed: bool
@@ -118,6 +128,9 @@ class SystemStatus:
     device_tamper_alarm_memory: bool
     areas: list = field(default_factory=list)
     zones: list = field(default_factory=list)
+    saig2: bool = False  # By-alarm Plus: i campi generali qui sopra non esistono, vedi anomalies/devices
+    anomalies: dict = field(default_factory=dict)  # SFE_State_* di SS_SaiPlant_ControlUnitAnomalies -> valore
+    devices: list = field(default_factory=list)
 
 
 def _gen_key(n: int = 12) -> str:
@@ -487,7 +500,26 @@ class ByAlarmClient:
             sstype = block.get("sstype")
             elements = block.get("elements", [])
 
-            if sstype == "SS_Service_Saig":
+            # By-alarm Plus: il gateway usa "SS_SaiPlant_All_Saig2" e "SS_Area_Saig2" al posto di
+            # "SS_Service_Saig" e "SS_Area". SS_SaiPlant_All_Saig2 contiene solo comandi (MuteAll,
+            # MemResetAll): gli stati generali stanno in ControlUnitAnomalies, Keyboard ed Expansion.
+            if sstype == "SS_SaiPlant_All_Saig2":
+                status.saig2 = True
+
+            elif sstype == "SS_SaiPlant_ControlUnitAnomalies":
+                status.saig2 = True
+                status.anomalies = {e.get("sfetype"): e.get("value") for e in elements
+                                    if str(e.get("sfetype", "")).startswith("SFE_State_")}
+
+            elif sstype in ("SS_SaiPlant_Keyboard", "SS_SaiPlant_Expansion"):
+                status.devices.append(DeviceStatus(
+                    idsf=block.get("idsf"),
+                    name=block.get("name", ""),
+                    kind="keyboard" if sstype == "SS_SaiPlant_Keyboard" else "expansion",
+                    tamper=get_elem(elements, "SFE_State_DeviceTamper") or "",
+                ))
+
+            elif sstype == "SS_Service_Saig":
                 status.maintenance = get_elem(elements, "SFE_State_Maintenance") == "On"
                 status.area_armed = get_elem(elements, "SFE_State_AreaArmed") == "True"
                 status.area_alarm = get_elem(elements, "SFE_State_AreaAlarm") == "True"
@@ -497,7 +529,9 @@ class ByAlarmClient:
                 status.device_tamper_alarm = get_elem(elements, "SFE_State_DeviceTamperAlarm") == "True"
                 status.device_tamper_alarm_memory = get_elem(elements, "SFE_State_DeviceTamperAlarmMemory") == "True"
 
-            elif sstype == "SS_Area":
+            elif sstype in ("SS_Area", "SS_Area_Saig2"):
+                if sstype == "SS_Area_Saig2":
+                    status.saig2 = True
                 insert = get_elem(elements, "SFE_State_Insert") or "Dis"
                 try:
                     zone_ids = json.loads(get_elem(elements, "SFE_State_Zones") or "[]")
@@ -512,9 +546,10 @@ class ByAlarmClient:
                     name=block.get("name", ""),
                     insert=insert,
                     armed=insert != "Dis",
-                    status=get_elem(elements, "SFE_State_Status") or "",
+                    status=get_elem(elements, "SFE_State_Status") or get_elem(elements, "SFE_State_AreaStatus") or "",
                     zone_alarms=zone_alarms,
                     zone_ids=zone_ids,
+                    alarm=bool(zone_alarms),
                 ))
 
             elif sstype == "SS_Zone":
@@ -530,6 +565,8 @@ class ByAlarmClient:
                     alarm_info=get_elem(elements, "SFE_State_AlarmInfo") or "",
                 ))
 
+        if status.saig2:
+            status.area_alarm = any(a.alarm for a in status.areas)
         return status
 
     async def _do_area_action(self, idsf: int, sfetype: str, value: str) -> None:

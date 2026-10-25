@@ -43,10 +43,10 @@ class ByAlarmCoordinator(DataUpdateCoordinator[SystemStatus]):
         except (ByAlarmConnectionError, ByAlarmError) as err:
             raise UpdateFailed(f"Errore comunicando con il gateway: {err}") from err
 
-    async def async_arm(self, mode: str) -> None:
-        await self.client.async_arm(mode, self.area_idsf)
+    async def async_arm(self, mode: str, area_idsf: int | None = None) -> None:
+        await self.client.async_arm(mode, area_idsf if area_idsf is not None else self.area_idsf)
         await self.async_request_refresh()
 
-    async def async_disarm(self) -> None:
-        await self.client.async_disarm(self.area_idsf)
+    async def async_disarm(self, area_idsf: int | None = None) -> None:
+        await self.client.async_disarm(area_idsf if area_idsf is not None else self.area_idsf)
         await self.async_request_refresh()

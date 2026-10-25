@@ -17,7 +17,7 @@ from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
-from .api import SystemStatus, ZoneStatus
+from .api import DeviceStatus, SystemStatus, ZoneStatus
 from .const import CONF_DUID, DOMAIN
 from .coordinator import ByAlarmCoordinator
 
@@ -41,15 +41,26 @@ async def async_setup_entry(
     duid = entry.data[CONF_DUID]
 
     entities: list[BinarySensorEntity] = []
-
-    for description in SYSTEM_SENSORS:
-        entities.append(ByAlarmSystemSensor(coordinator, entry, duid, description))
-
     status: SystemStatus | None = coordinator.data
+    saig2 = bool(status and status.saig2)
+
+    # Sulla By-alarm Plus i campi generali originali non esistono: resta solo "Allarme in corso",
+    # calcolato dalle aree; al loro posto anomalie centrale e tamper di tastiere/espansioni.
+    for description in SYSTEM_SENSORS:
+        if not saig2 or description.key == "area_alarm":
+            entities.append(ByAlarmSystemSensor(coordinator, entry, duid, description))
+
     if status:
         for zone in status.zones:
             entities.append(ByAlarmZoneOpenedSensor(coordinator, entry, duid, zone.idsf))
             entities.append(ByAlarmZoneTamperSensor(coordinator, entry, duid, zone.idsf))
+            if saig2:
+                entities.append(ByAlarmZoneMaskSensor(coordinator, entry, duid, zone.idsf))
+        if saig2:
+            for key in status.anomalies:
+                entities.append(ByAlarmAnomalySensor(coordinator, entry, duid, key))
+            for device in status.devices:
+                entities.append(ByAlarmDeviceTamperSensor(coordinator, entry, duid, device.idsf))
 
     async_add_entities(entities)
 
@@ -222,3 +233,118 @@ class ByAlarmZoneTamperSensor(CoordinatorEntity[ByAlarmCoordinator], BinarySenso
     @property
     def available(self) -> bool:
         return super().available and self._zone is not None
+
+
+class ByAlarmZoneMaskSensor(ByAlarmZoneTamperSensor):
+    """Mascheramento di una zona (By-alarm Plus). Disattivato di default: ha senso solo sui
+    rilevatori con antimascheramento cablato (es. rilevatori da esterno a triplo bilanciamento)."""
+
+    _attr_entity_registry_enabled_default = False
+
+    def __init__(self, coordinator: ByAlarmCoordinator, entry: ConfigEntry, duid: str, zone_idsf: int) -> None:
+        super().__init__(coordinator, entry, duid, zone_idsf)
+        self._attr_unique_id = f"{duid}_zone_{zone_idsf}_mask"
+
+    @property
+    def name(self) -> str | None:
+        zone = self._zone
+        base = zone.name if zone else f"Zona {self._zone_idsf}"
+        return f"{base} mascherata"
+
+    @property
+    def is_on(self) -> bool | None:
+        zone = self._zone
+        return zone.mask if zone else None
+
+
+# Anomalie della centrale (SS_SaiPlant_ControlUnitAnomalies): nome, classe, attivo di default.
+# A riposo valgono "Idle"; qualunque altro valore conta come anomalia (il valore di guasto non e' noto).
+ANOMALIES: dict[str, tuple[str, BinarySensorDeviceClass, bool]] = {
+    "SFE_State_DeviceTamper": ("Tamper centrale", BinarySensorDeviceClass.TAMPER, True),
+    "SFE_State_ControlUnitNoLink": ("Collegamento con la centrale", BinarySensorDeviceClass.PROBLEM, True),
+    "SFE_State_MainsACAbsent": ("Mancanza 230 V", BinarySensorDeviceClass.PROBLEM, True),
+    "SFE_State_LowBattery": ("Batteria centrale bassa", BinarySensorDeviceClass.BATTERY, True),
+    "SFE_State_BatteryDisconnected": ("Batteria centrale scollegata", BinarySensorDeviceClass.PROBLEM, True),
+    "SFE_State_BatteryShortCircuit": ("Batteria centrale in corto", BinarySensorDeviceClass.PROBLEM, True),
+    "SFE_State_BatteryInefficiency": ("Batteria centrale inefficiente", BinarySensorDeviceClass.PROBLEM, True),
+    "SFE_State_PSTNNoLine": ("Linea telefonica assente", BinarySensorDeviceClass.PROBLEM, False),
+    "SFE_State_GSMNoLine": ("Linea GSM assente", BinarySensorDeviceClass.PROBLEM, True),
+    "SFE_State_GSMJamming": ("Disturbo GSM", BinarySensorDeviceClass.PROBLEM, True),
+    "SFE_State_SomeDeviceBatteryLow": ("Batteria bassa in un dispositivo", BinarySensorDeviceClass.BATTERY, True),
+}
+
+
+class ByAlarmAnomalySensor(CoordinatorEntity[ByAlarmCoordinator], BinarySensorEntity):
+    """Un'anomalia della centrale (By-alarm Plus)."""
+
+    _attr_has_entity_name = True
+
+    def __init__(self, coordinator: ByAlarmCoordinator, entry: ConfigEntry, duid: str, key: str) -> None:
+        super().__init__(coordinator)
+        self._key = key
+        name, device_class, enabled = ANOMALIES.get(key, (key.removeprefix("SFE_State_"), BinarySensorDeviceClass.PROBLEM, False))
+        self._attr_name = name
+        self._attr_device_class = device_class
+        self._attr_entity_registry_enabled_default = enabled
+        self._attr_unique_id = f"{duid}_anomaly_{key.removeprefix('SFE_State_')}"
+        self._attr_device_info = _device_info(duid, entry.title)
+
+    @property
+    def _value(self) -> str | None:
+        status = self.coordinator.data
+        return status.anomalies.get(self._key) if status else None
+
+    @property
+    def is_on(self) -> bool | None:
+        value = self._value
+        return None if value is None else value != "Idle"
+
+    @property
+    def available(self) -> bool:
+        return super().available and self._value is not None
+
+    @property
+    def extra_state_attributes(self) -> dict:
+        return {"valore_centrale": self._value}
+
+
+class ByAlarmDeviceTamperSensor(CoordinatorEntity[ByAlarmCoordinator], BinarySensorEntity):
+    """Tamper di una tastiera o di un'espansione (By-alarm Plus)."""
+
+    _attr_has_entity_name = True
+    _attr_device_class = BinarySensorDeviceClass.TAMPER
+
+    def __init__(self, coordinator: ByAlarmCoordinator, entry: ConfigEntry, duid: str, device_idsf: int) -> None:
+        super().__init__(coordinator)
+        self._device_idsf = device_idsf
+        self._attr_unique_id = f"{duid}_device_{device_idsf}_tamper"
+        self._attr_device_info = _device_info(duid, entry.title)
+
+    @property
+    def _device(self) -> DeviceStatus | None:
+        status = self.coordinator.data
+        if status is None:
+            return None
+        return next((d for d in status.devices if d.idsf == self._device_idsf), None)
+
+    @property
+    def name(self) -> str | None:
+        device = self._device
+        if not device:
+            return f"Dispositivo {self._device_idsf} tamper"
+        kind = "tastiera" if device.kind == "keyboard" else "espansione"
+        return f"Tamper {kind} {device.name}"
+
+    @property
+    def is_on(self) -> bool | None:
+        device = self._device
+        return None if device is None or not device.tamper else device.tamper != "Idle"
+
+    @property
+    def available(self) -> bool:
+        return super().available and self._device is not None
+
+    @property
+    def extra_state_attributes(self) -> dict:
+        device = self._device
+        return {"valore_centrale": device.tamper} if device else {}

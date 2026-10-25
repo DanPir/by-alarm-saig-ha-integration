@@ -5,3 +5,6 @@ parametri_byalarm.txt
 
 # note personali, non destinate al repository
 docs/writeup.md
+
+# cache di Python
+__pycache__/
