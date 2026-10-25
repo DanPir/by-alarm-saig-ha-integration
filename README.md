@@ -234,13 +234,15 @@ automatically:
   `SFE_AvailableInsertMode` for the configured user code: with a code that
   has no arm/disarm rights the list is empty and the panel is read-only,
   and nothing is sent to the gateway
-- per-zone open, tamper and masking sensors
+- per-zone open, tamper and masking sensors (masking disabled by default:
+  enable it only for detectors with anti-masking)
 - control unit anomaly sensors (mains, battery, GSM/PSTN, tamper, ...) and
   tamper sensors for keypads and expansions; any value other than `Idle`
   turns the sensor on, and the raw value is available as an attribute
 - of the 7 general SAIG status sensors only "alarm" is kept, computed from
   the areas: the Plus does not report the other fields, so they are not
-  created
+  created (and the matching panel attributes, such as maintenance, are
+  not shown)
 
 ## Arming mode mapping
 

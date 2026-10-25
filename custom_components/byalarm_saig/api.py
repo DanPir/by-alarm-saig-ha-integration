@@ -559,7 +559,7 @@ class ByAlarmClient:
                     status=get_elem(elements, "SFE_State_Status") or get_elem(elements, "SFE_State_AreaStatus") or "",
                     zone_alarms=zone_alarms,
                     zone_ids=zone_ids,
-                    alarm=bool(zone_alarms),
+                    alarm=sstype == "SS_Area_Saig2" and bool(zone_alarms),
                     insert_modes=insert_modes,
                 ))
 

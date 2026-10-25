@@ -147,13 +147,14 @@ class ByAlarmPanel(CoordinatorEntity[ByAlarmCoordinator], AlarmControlPanelEntit
         area = self._area()
         if status is None or area is None:
             return {}
-        attrs = {
-            "manutenzione": status.maintenance,
-            "allarme_in_memoria": status.area_alarm_memory,
-            "tamper_zona": status.zone_tamper,
-            "tamper_dispositivo": status.device_tamper_alarm,
-            "id_area": area.idsf,
-        }
+        attrs = {"id_area": area.idsf}
+        if not status.saig2:  # sulla By-alarm Plus questi campi non esistono: sarebbero sempre falsi
+            attrs.update({
+                "manutenzione": status.maintenance,
+                "allarme_in_memoria": status.area_alarm_memory,
+                "tamper_zona": status.zone_tamper,
+                "tamper_dispositivo": status.device_tamper_alarm,
+            })
         zones = [z for z in status.zones if not area.zone_ids or z.zone_id in area.zone_ids]
         attrs["zone_aperte"] = [z.name for z in zones if z.opened]
         attrs["zone_tamper"] = [z.name for z in zones if z.tamper]

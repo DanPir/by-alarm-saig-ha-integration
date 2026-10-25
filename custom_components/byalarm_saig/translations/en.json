@@ -50,7 +50,21 @@
       "zone_mask": { "name": "Zone masked" },
       "device_tamper_alarm": { "name": "Device tamper" },
       "device_tamper_alarm_memory": { "name": "Device tamper memory" },
-      "maintenance": { "name": "Maintenance" }
+      "maintenance": { "name": "Maintenance" },
+      "anomaly_device_tamper": { "name": "Control unit tamper" },
+      "anomaly_control_unit_no_link": { "name": "Control unit link" },
+      "anomaly_mains_ac_absent": { "name": "Mains power missing" },
+      "anomaly_low_battery": { "name": "Control unit battery low" },
+      "anomaly_battery_disconnected": { "name": "Control unit battery disconnected" },
+      "anomaly_battery_short_circuit": { "name": "Control unit battery short circuit" },
+      "anomaly_battery_inefficiency": { "name": "Control unit battery inefficient" },
+      "anomaly_pstn_no_line": { "name": "Phone line missing" },
+      "anomaly_gsm_no_line": { "name": "GSM line missing" },
+      "anomaly_gsm_jamming": { "name": "GSM jamming" },
+      "anomaly_some_device_battery_low": { "name": "Low battery in a device" },
+      "zone_masked": { "name": "{zone} masked" },
+      "keyboard_tamper": { "name": "Keypad tamper {device}" },
+      "expansion_tamper": { "name": "Expansion tamper {device}" }
     }
   }
 }

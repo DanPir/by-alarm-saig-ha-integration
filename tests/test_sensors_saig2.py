@@ -144,7 +144,7 @@ class TestSensorsSaig2(unittest.TestCase):
     def test_anomalia_con_valore_sconosciuto_si_accende(self):
         ids = setup(status(plus(mains="Alarm")))
         self.assertTrue(ids["D_anomaly_MainsACAbsent"].is_on)
-        self.assertEqual(ids["D_anomaly_MainsACAbsent"]._attr_name, "Mancanza 230 V")
+        self.assertEqual(ids["D_anomaly_MainsACAbsent"]._attr_translation_key, "anomaly_mains_ac_absent")
         self.assertEqual(ids["D_anomaly_MainsACAbsent"].extra_state_attributes["valore_centrale"], "Alarm")
         self.assertFalse(ids["D_anomaly_LowBattery"].is_on)
 
@@ -152,14 +152,17 @@ class TestSensorsSaig2(unittest.TestCase):
         ids = setup(status(plus(kb_tamper="Active")))
         t = ids["D_device_31501_tamper"]
         self.assertTrue(t.is_on)
-        self.assertEqual(t.name, "Tamper tastiera Tastiera 1")
-        self.assertEqual(ids["D_device_33004_tamper"].name, "Tamper espansione Espansione 4")
+        self.assertEqual((t._attr_translation_key, t._attr_translation_placeholders),
+                         ("keyboard_tamper", {"device": "Tastiera 1"}))
+        e = ids["D_device_33004_tamper"]
+        self.assertEqual((e._attr_translation_key, e._attr_translation_placeholders),
+                         ("expansion_tamper", {"device": "Espansione 4"}))
 
     def test_mascheramento_zona_disattivato_di_default(self):
         ids = setup(status(plus(mask="True")))
         m = ids["D_zone_30001_mask"]
         self.assertTrue(m.is_on)
-        self.assertEqual(m.name, "Zona 5 mascherata")
+        self.assertEqual((m._attr_translation_key, m._attr_translation_placeholders), ("zone_masked", {"zone": "Zona 5"}))
         self.assertFalse(m._attr_entity_registry_enabled_default)
 
     def test_allarme_in_corso_dalle_aree(self):
@@ -177,6 +180,22 @@ class TestSensorsSaig2(unittest.TestCase):
         ids = setup(status(blocks))
         self.assertEqual(sorted(ids), sorted(f"D_{d.key}" for d in bs.SYSTEM_SENSORS))
         self.assertTrue(ids["D_maintenance"].is_on)
+
+
+class TestTraduzioni(unittest.TestCase):
+    """Ogni chiave di traduzione usata dai sensori nuovi esiste in strings.json, en.json e it.json,
+    con gli stessi segnaposto."""
+
+    def test_chiavi_e_segnaposto(self):
+        import json
+        import re
+        keys = {k: set() for k, _, _ in bs.ANOMALIES.values()}
+        keys.update({"zone_masked": {"zone"}, "keyboard_tamper": {"device"}, "expansion_tamper": {"device"}})
+        for f in ("strings.json", "translations/en.json", "translations/it.json"):
+            d = json.load(open(os.path.join(PKG, f), encoding="utf-8"))["entity"]["binary_sensor"]
+            for k, ph in keys.items():
+                self.assertIn(k, d, f"{k} manca in {f}")
+                self.assertEqual(set(re.findall(r"{(\w+)}", d[k]["name"])), ph, f"{k} in {f}")
 
 
 if __name__ == "__main__":

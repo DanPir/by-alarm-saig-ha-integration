@@ -217,6 +217,22 @@ class TestPanels(unittest.TestCase):
             asyncio.run(ents[0].async_alarm_arm_away())
         self.assertEqual(ents[0].alarm_state, S.DISARMED)
 
+    def test_plus_niente_attributi_sempre_falsi(self):
+        _, ents = setup(status(PLUS), 21001)
+        attrs = ents[0].extra_state_attributes
+        for k in ("manutenzione", "allarme_in_memoria", "tamper_zona", "tamper_dispositivo"):
+            self.assertNotIn(k, attrs)  # sulla Plus questi campi non esistono
+
+    def test_saig_allarme_solo_dal_campo_generale(self):
+        # sulla SAIG originale l'elenco delle zone in allarme dell'area non cambia lo stato (come prima)
+        blocks = [{"sstype": "SS_Area", "idsf": 5, "name": "Casa", "elements": [
+                      {"sfetype": "SFE_State_Insert", "value": "Tot"}, {"sfetype": "SFE_State_ZoneAlarm", "value": "[3]"}]},
+                  {"sstype": "SS_Service_Saig", "elements": [{"sfetype": "SFE_State_AreaAlarm", "value": "False"},
+                                                              {"sfetype": "SFE_State_Maintenance", "value": "On"}]}]
+        _, ents = setup(status(blocks), 5)
+        self.assertEqual(ents[0].alarm_state, S.ARMED_AWAY)
+        self.assertTrue(ents[0].extra_state_attributes["manutenzione"])
+
     def test_area_unica_come_originale(self):
         blocks = [{"sstype": "SS_Area", "idsf": 5, "name": "Casa", "elements": [{"sfetype": "SFE_State_Insert", "value": "Int"}]},
                   {"sstype": "SS_Service_Saig", "elements": [{"sfetype": "SFE_State_AreaAlarm", "value": "False"}]}]
