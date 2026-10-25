@@ -1,6 +1,7 @@
 """Coordinator per l'integrazione Vimar By-alarm (SAIG)."""
 from __future__ import annotations
 
+import asyncio
 import logging
 from datetime import timedelta
 
@@ -15,7 +16,7 @@ from .api import (
     ByAlarmError,
     SystemStatus,
 )
-from .const import DEFAULT_SCAN_INTERVAL
+from .const import CONFIRM_INTERVAL, CONFIRM_TIMEOUT, DEFAULT_SCAN_INTERVAL
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -53,7 +54,7 @@ class ByAlarmCoordinator(DataUpdateCoordinator[SystemStatus]):
             await self.client.async_insert_saig2(area_idsf, mode)
         else:
             await self.client.async_arm(mode, area_idsf)
-        await self.async_request_refresh()
+        self._start_confirm(area_idsf, mode)
 
     async def async_disarm(self, area_idsf: int | None = None) -> None:
         area_idsf = area_idsf if area_idsf is not None else self.area_idsf
@@ -61,4 +62,27 @@ class ByAlarmCoordinator(DataUpdateCoordinator[SystemStatus]):
             await self.client.async_insert_saig2(area_idsf, "Dis")
         else:
             await self.client.async_disarm(area_idsf)
-        await self.async_request_refresh()
+        self._start_confirm(area_idsf, "Dis")
+
+    def area_insert(self, area_idsf: int) -> str | None:
+        """Stato di inserimento attuale dell'area ("Dis"/"Tot"/...), None se sconosciuto."""
+        areas = self.data.areas if self.data else []
+        area = next((a for a in areas if a.idsf == area_idsf), areas[0] if len(areas) == 1 else None)
+        return area.insert if area else None
+
+    def _start_confirm(self, area_idsf: int, target: str) -> None:
+        # il comando e' partito: la centrale cambia stato dopo qualche secondo, quindi invece di
+        # aspettare la lettura normale (ogni 30 s) si rilegge spesso finche' non conferma
+        self.hass.async_create_background_task(
+            self._async_confirm(area_idsf, target), name=f"byalarm_confirm_{area_idsf}"
+        )
+
+    async def _async_confirm(self, area_idsf: int, target: str) -> None:
+        for _ in range(CONFIRM_TIMEOUT // CONFIRM_INTERVAL):
+            await asyncio.sleep(CONFIRM_INTERVAL)
+            await self.async_refresh()
+            if self.area_insert(area_idsf) == target:
+                return
+        _LOGGER.warning(
+            "Il gateway non ha confermato '%s' sull'area %s entro %s s", target, area_idsf, CONFIRM_TIMEOUT
+        )

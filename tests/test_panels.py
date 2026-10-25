@@ -21,7 +21,7 @@ def _mod(name, **attrs):
 # --- controfigure di homeassistant ---------------------------------------------------------
 class AlarmControlPanelState(str, enum.Enum):
     DISARMED = "disarmed"; ARMED_AWAY = "armed_away"; ARMED_HOME = "armed_home"
-    ARMED_NIGHT = "armed_night"; TRIGGERED = "triggered"
+    ARMED_NIGHT = "armed_night"; TRIGGERED = "triggered"; ARMING = "arming"; DISARMING = "disarming"
 
 
 class HomeAssistantError(Exception):
@@ -43,6 +43,12 @@ class CoordinatorEntity:
     def available(self):
         return True
 
+    def async_write_ha_state(self):
+        pass
+
+    def _handle_coordinator_update(self):
+        pass
+
 
 class DataUpdateCoordinator:
     def __init__(self, *a, **k):
@@ -57,7 +63,7 @@ for name in ("homeassistant", "homeassistant.components", "homeassistant.helpers
 _mod("homeassistant.components.alarm_control_panel", AlarmControlPanelEntity=object,
      AlarmControlPanelEntityFeature=AlarmControlPanelEntityFeature, AlarmControlPanelState=AlarmControlPanelState)
 _mod("homeassistant.config_entries", ConfigEntry=object)
-_mod("homeassistant.core", HomeAssistant=object)
+_mod("homeassistant.core", HomeAssistant=object, callback=lambda f: f)
 _mod("homeassistant.exceptions", ConfigEntryAuthFailed=Exception, ConfigEntryNotReady=Exception,
      HomeAssistantError=HomeAssistantError)
 _mod("homeassistant.helpers.device_registry", DeviceInfo=dict)
@@ -112,6 +118,11 @@ class FakeCoord:
 
     async def async_disarm(self, area_idsf=None):
         self.calls.append(("disarm", area_idsf))
+
+
+class FailingCoord(FakeCoord):
+    async def async_arm(self, mode, area_idsf=None):
+        raise api.ByAlarmError(11, "doaction")
 
 
 class Entry:
@@ -175,6 +186,37 @@ class TestPanels(unittest.TestCase):
             asyncio.run(ents[1].async_alarm_arm_home())
         self.assertEqual(len(coord.calls), 2)
 
+    def test_stato_in_corso_fino_alla_conferma(self):
+        blocks = [area(21001, "Area A", "Dis", "[1,2]", modes=MODES_DIS_TOT)]
+        coord, ents = setup(status(blocks), 21001)
+        asyncio.run(ents[0].async_alarm_arm_away())
+        self.assertEqual(ents[0].alarm_state, S.ARMING)  # comando partito, centrale non ancora aggiornata
+        ents[0]._handle_coordinator_update()  # lettura con lo stato vecchio: resta "in corso"
+        self.assertEqual(ents[0].alarm_state, S.ARMING)
+        coord.data = status([area(21001, "Area A", "Tot", "[1,2]", modes=MODES_DIS_TOT)])
+        ents[0]._handle_coordinator_update()  # la centrale conferma
+        self.assertEqual(ents[0].alarm_state, S.ARMED_AWAY)
+
+    def test_in_corso_scade_se_la_centrale_non_conferma(self):
+        blocks = [area(21001, "Area A", "Tot", "[1,2]", modes=MODES_DIS_TOT)]
+        _, ents = setup(status(blocks), 21001)
+        asyncio.run(ents[0].async_alarm_disarm())
+        self.assertEqual(ents[0].alarm_state, S.DISARMING)
+        ents[0]._pending = ("Dis", 0)  # scadenza passata
+        ents[0]._handle_coordinator_update()
+        self.assertEqual(ents[0].alarm_state, S.ARMED_AWAY)  # torna allo stato vero
+
+    def test_comando_rifiutato_niente_in_corso(self):
+        blocks = [area(21001, "Area A", "Dis", "[1,2]", modes=MODES_DIS_TOT)]
+        data = status(blocks)
+        coord = FailingCoord(data, 21001)
+        hass = types.SimpleNamespace(data={const.DOMAIN: {"e1": coord}})
+        ents = []
+        asyncio.run(acp.async_setup_entry(hass, Entry(), ents.extend))
+        with self.assertRaises(api.ByAlarmError):
+            asyncio.run(ents[0].async_alarm_arm_away())
+        self.assertEqual(ents[0].alarm_state, S.DISARMED)
+
     def test_area_unica_come_originale(self):
         blocks = [{"sstype": "SS_Area", "idsf": 5, "name": "Casa", "elements": [{"sfetype": "SFE_State_Insert", "value": "Int"}]},
                   {"sstype": "SS_Service_Saig", "elements": [{"sfetype": "SFE_State_AreaAlarm", "value": "False"}]}]
@@ -221,14 +263,33 @@ class TestComandoSaig2(unittest.TestCase):
             async def async_disarm(self, idsf):
                 sent.append(("disarm", idsf))
 
-        async def refresh():
-            pass
+        started = []
+        hass = types.SimpleNamespace(async_create_background_task=lambda coro, name: (started.append(name), coro.close()))
         for data in (status(PLUS), status([{"sstype": "SS_Area", "idsf": 5, "name": "Casa", "elements": []}])):
             co = coord_mod.ByAlarmCoordinator.__new__(coord_mod.ByAlarmCoordinator)
-            co.client, co.area_idsf, co.data, co.async_request_refresh = Client(), 5, data, refresh
+            co.client, co.area_idsf, co.data, co.hass = Client(), 5, data, hass
             asyncio.run(co.async_arm("Tot", 21001 if data.saig2 else None))
             asyncio.run(co.async_disarm(21001 if data.saig2 else None))
         self.assertEqual(sent, [("saig2", 21001, "Tot"), ("saig2", 21001, "Dis"), ("arm", 5, "Tot"), ("disarm", 5)])
+        self.assertEqual(len(started), 4)  # dopo ogni comando parte la conferma con letture ravvicinate
+
+    def test_conferma_si_ferma_appena_la_centrale_cambia(self):
+        co = coord_mod.ByAlarmCoordinator.__new__(coord_mod.ByAlarmCoordinator)
+        co.data = status([area(21001, "Area A", "Dis", "[1]")])
+        letture = []
+
+        async def refresh():
+            letture.append(1)
+            if len(letture) == 3:  # alla terza lettura la centrale e' inserita
+                co.data = status([area(21001, "Area A", "Tot", "[1]")])
+        co.async_refresh = refresh
+        sleep = coord_mod.asyncio.sleep
+        coord_mod.asyncio.sleep = lambda s: sleep(0)
+        try:
+            asyncio.run(co._async_confirm(21001, "Tot"))
+        finally:
+            coord_mod.asyncio.sleep = sleep
+        self.assertEqual(len(letture), 3)
 
 
 if __name__ == "__main__":

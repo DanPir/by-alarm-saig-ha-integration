@@ -14,6 +14,7 @@ Senza permessi di comando l'elenco e' vuoto e il pannello resta in sola lettura.
 from __future__ import annotations
 
 import logging
+import time
 
 from homeassistant.components.alarm_control_panel import (
     AlarmControlPanelEntity,
@@ -21,14 +22,14 @@ from homeassistant.components.alarm_control_panel import (
     AlarmControlPanelState,
 )
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, callback
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .api import AreaStatus, ByAlarmError
-from .const import CONF_DUID, DOMAIN
+from .const import CONF_DUID, CONFIRM_TIMEOUT, DOMAIN
 from .coordinator import ByAlarmCoordinator
 
 _LOGGER = logging.getLogger(__name__)
@@ -75,6 +76,8 @@ class ByAlarmPanel(CoordinatorEntity[ByAlarmCoordinator], AlarmControlPanelEntit
         self._entry = entry
         self._area_idsf = area_idsf
         self._multi = multi
+        # comando appena mandato: (stato atteso "Dis"/"Tot"/..., scadenza) finche' la centrale non conferma
+        self._pending: tuple[str, float] | None = None
         duid = entry.data[CONF_DUID]
         self._attr_unique_id = f"{duid}_area_{area_idsf}"
         # con una sola area il nome resta quello del dispositivo (come l'originale)
@@ -126,7 +129,17 @@ class ByAlarmPanel(CoordinatorEntity[ByAlarmCoordinator], AlarmControlPanelEntit
         # stato di allarme: per area (zone in allarme); con una sola area vale anche quello generale
         if area.alarm or (not self._multi and status.area_alarm):
             return AlarmControlPanelState.TRIGGERED
+        if self._pending:
+            return AlarmControlPanelState.DISARMING if self._pending[0] == "Dis" else AlarmControlPanelState.ARMING
         return _STATE_MAP.get(area.insert)
+
+    @callback
+    def _handle_coordinator_update(self) -> None:
+        if self._pending:
+            area = self._area()
+            if (area and area.insert == self._pending[0]) or time.monotonic() >= self._pending[1]:
+                self._pending = None
+        super()._handle_coordinator_update()
 
     @property
     def extra_state_attributes(self) -> dict:
@@ -150,19 +163,19 @@ class ByAlarmPanel(CoordinatorEntity[ByAlarmCoordinator], AlarmControlPanelEntit
 
     async def async_alarm_disarm(self, code: str | None = None) -> None:
         self._check_saig2_mode("Dis")
-        await self._run_command(self.coordinator.async_disarm(self._area_idsf))
+        await self._run_command("Dis", self.coordinator.async_disarm(self._area_idsf))
 
     async def async_alarm_arm_away(self, code: str | None = None) -> None:
         self._check_saig2_mode("Tot")
-        await self._run_command(self.coordinator.async_arm("Tot", self._area_idsf))
+        await self._run_command("Tot", self.coordinator.async_arm("Tot", self._area_idsf))
 
     async def async_alarm_arm_home(self, code: str | None = None) -> None:
         self._check_saig2_mode("Int")
-        await self._run_command(self.coordinator.async_arm("Int", self._area_idsf))
+        await self._run_command("Int", self.coordinator.async_arm("Int", self._area_idsf))
 
     async def async_alarm_arm_night(self, code: str | None = None) -> None:
         self._check_saig2_mode("Par")
-        await self._run_command(self.coordinator.async_arm("Par", self._area_idsf))
+        await self._run_command("Par", self.coordinator.async_arm("Par", self._area_idsf))
 
     def _check_saig2_mode(self, mode: str) -> None:
         """By-alarm Plus: niente comando al gateway se il modo non e' ammesso per il codice utente."""
@@ -172,9 +185,15 @@ class ByAlarmPanel(CoordinatorEntity[ByAlarmCoordinator], AlarmControlPanelEntit
                 f"Mode '{mode}' is not available for this area with the configured user code"
             )
 
-    async def _run_command(self, coro) -> None:
+    async def _run_command(self, target: str, coro) -> None:
+        # subito "in corso" sul pannello: la conferma della centrale arriva dopo qualche secondo
+        self._pending = (target, time.monotonic() + CONFIRM_TIMEOUT)
+        self.async_write_ha_state()
         try:
             await coro
-        except ByAlarmError as err:
-            _LOGGER.error("Comando rifiutato dal gateway By-alarm: %s", err)
+        except Exception as err:
+            self._pending = None
+            self.async_write_ha_state()
+            if isinstance(err, ByAlarmError):
+                _LOGGER.error("Comando rifiutato dal gateway By-alarm: %s", err)
             raise

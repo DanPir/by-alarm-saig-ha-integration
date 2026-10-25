@@ -11,3 +11,6 @@ CONF_AREA_IDSF = "area_idsf"
 
 DEFAULT_PORT = 20615
 DEFAULT_SCAN_INTERVAL = 30  # secondi
+# dopo un comando: letture ravvicinate finche' la centrale conferma il nuovo stato
+CONFIRM_INTERVAL = 2  # secondi tra una lettura e l'altra
+CONFIRM_TIMEOUT = 20  # secondi massimi di attesa della conferma

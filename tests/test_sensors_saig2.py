@@ -64,7 +64,7 @@ _mod("homeassistant.components.binary_sensor", BinarySensorDeviceClass=BinarySen
      BinarySensorEntity=object, BinarySensorEntityDescription=BinarySensorEntityDescription)
 _mod("homeassistant.const", EntityCategory=EntityCategory)
 _mod("homeassistant.config_entries", ConfigEntry=object)
-_mod("homeassistant.core", HomeAssistant=object)
+_mod("homeassistant.core", HomeAssistant=object, callback=lambda f: f)
 _mod("homeassistant.exceptions", ConfigEntryAuthFailed=Exception, ConfigEntryNotReady=Exception)
 _mod("homeassistant.helpers.device_registry", DeviceInfo=dict)
 _mod("homeassistant.helpers.entity_platform", AddEntitiesCallback=object)
