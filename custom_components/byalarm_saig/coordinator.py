@@ -16,9 +16,19 @@ from .api import (
     ByAlarmError,
     SystemStatus,
 )
-from .const import CONFIRM_INTERVAL, CONFIRM_TIMEOUT, DEFAULT_SCAN_INTERVAL
+from .const import (
+    CONFIRM_INTERVAL,
+    CONFIRM_TIMEOUT,
+    DEFAULT_SCAN_INTERVAL,
+    RECONNECT_CONFIRM_DELAY,
+    RECONNECT_CONFIRM_READS,
+)
 
 _LOGGER = logging.getLogger(__name__)
+
+
+def _area_states(status: SystemStatus) -> dict:
+    return {a.idsf: a.insert for a in status.areas}
 
 
 class ByAlarmCoordinator(DataUpdateCoordinator[SystemStatus]):
@@ -36,7 +46,10 @@ class ByAlarmCoordinator(DataUpdateCoordinator[SystemStatus]):
 
     async def _async_update_data(self) -> SystemStatus:
         try:
-            return await self.client.async_get_status()
+            status = await self.client.async_get_status()
+            if not self.last_update_success and self.data is not None:
+                status = await self._async_confirm_after_reconnect(status)
+            return status
         except ByAlarmAuthError as err:
             # il gateway rifiuta le credenziali salvate (es. password del
             # dispositivo rigenerata): ferma il polling e avvia il reauth
@@ -47,6 +60,21 @@ class ByAlarmCoordinator(DataUpdateCoordinator[SystemStatus]):
     @property
     def saig2(self) -> bool:
         return bool(self.data and self.data.saig2)
+
+    async def _async_confirm_after_reconnect(self, status: SystemStatus) -> SystemStatus:
+        """Appena ricollegati, la prima lettura puo' essere sbagliata (visto su una By-alarm Plus
+        dopo un cambio dei permessi del codice utente: un'area inserita letta "Dis" per un giro).
+        Se lo stato di un'area e' cambiato rispetto a prima della disconnessione, si rilegge
+        finche' due letture di fila sono d'accordo."""
+        if _area_states(status) == _area_states(self.data):
+            return status
+        for _ in range(RECONNECT_CONFIRM_READS):
+            await asyncio.sleep(RECONNECT_CONFIRM_DELAY)
+            again = await self.client.async_get_status()
+            if _area_states(again) == _area_states(status):
+                return again
+            status = again
+        return status
 
     async def async_arm(self, mode: str, area_idsf: int | None = None) -> None:
         area_idsf = area_idsf if area_idsf is not None else self.area_idsf

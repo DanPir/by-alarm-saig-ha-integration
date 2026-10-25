@@ -292,5 +292,37 @@ class TestComandoSaig2(unittest.TestCase):
         self.assertEqual(len(letture), 3)
 
 
+class TestRicollegamento(unittest.TestCase):
+    """Dopo una disconnessione, un cambio di stato di un'area vale solo se una nuova lettura lo conferma."""
+
+    def run_update(self, prima, letture):
+        co = coord_mod.ByAlarmCoordinator.__new__(coord_mod.ByAlarmCoordinator)
+        co.data = status([area(21001, "Area A", prima, "[1]")])
+        co.last_update_success = False  # la lettura precedente era fallita
+        fatte = []
+
+        class Client:
+            async def async_get_status(self):
+                fatte.append(1)
+                return status([area(21001, "Area A", letture[len(fatte) - 1], "[1]")])
+        co.client = Client()
+        sleep = coord_mod.asyncio.sleep
+        coord_mod.asyncio.sleep = lambda s: sleep(0)
+        try:
+            res = asyncio.run(co._async_update_data())
+        finally:
+            coord_mod.asyncio.sleep = sleep
+        return res.areas[0].insert, len(fatte)
+
+    def test_lettura_sbagliata_scartata(self):
+        self.assertEqual(self.run_update("Tot", ["Dis", "Tot", "Tot"]), ("Tot", 3))
+
+    def test_cambio_vero_confermato(self):
+        self.assertEqual(self.run_update("Tot", ["Dis", "Dis"]), ("Dis", 2))
+
+    def test_nessun_cambio_nessuna_lettura_in_piu(self):
+        self.assertEqual(self.run_update("Tot", ["Tot"]), ("Tot", 1))
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
