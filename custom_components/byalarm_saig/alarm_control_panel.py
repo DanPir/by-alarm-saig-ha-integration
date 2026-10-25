@@ -6,7 +6,10 @@ adatto a restare in casa), Parziale->Night.
 
 Variante "plus": un pannello per ogni area letta dal gateway (By-alarm Plus
 con piu' aree). Il pannello della prima area mantiene lo stesso unique_id
-dell'integrazione originale.
+dell'integrazione originale. Sulla By-alarm Plus (blocchi Saig2) l'area ha un solo
+comando, SFE_Cmd_Insert, e i modi ammessi per il codice utente in SFE_AvailableInsertMode:
+il pannello offre solo quelli (Totale -> Away; i parziali A-D non sono ancora gestiti).
+Senza permessi di comando l'elenco e' vuoto e il pannello resta in sola lettura.
 """
 from __future__ import annotations
 
@@ -19,6 +22,7 @@ from homeassistant.components.alarm_control_panel import (
 )
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
+from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
@@ -57,11 +61,6 @@ class ByAlarmPanel(CoordinatorEntity[ByAlarmCoordinator], AlarmControlPanelEntit
 
     _attr_has_entity_name = True
     _attr_translation_key = "vimar_alarm"
-    _attr_supported_features = (
-        AlarmControlPanelEntityFeature.ARM_HOME
-        | AlarmControlPanelEntityFeature.ARM_AWAY
-        | AlarmControlPanelEntityFeature.ARM_NIGHT
-    )
     _attr_code_arm_required = False  # il PIN e' gia' configurato nell'integrazione
 
     def __init__(
@@ -85,6 +84,27 @@ class ByAlarmPanel(CoordinatorEntity[ByAlarmCoordinator], AlarmControlPanelEntit
             name=entry.title,
             manufacturer="Vimar",
             model="By-alarm (SAIG)",
+        )
+
+    def _saig2_modes(self) -> dict | None:
+        """By-alarm Plus: modi ammessi per quest'area (None sulla SAIG originale)."""
+        status = self.coordinator.data
+        if not (status and status.saig2):
+            return None
+        area = self._area()
+        return area.insert_modes if area else {}
+
+    @property
+    def supported_features(self) -> AlarmControlPanelEntityFeature:
+        modes = self._saig2_modes()
+        if modes is not None:
+            if "Tot" in modes:
+                return AlarmControlPanelEntityFeature.ARM_AWAY
+            return AlarmControlPanelEntityFeature(0)
+        return (
+            AlarmControlPanelEntityFeature.ARM_HOME
+            | AlarmControlPanelEntityFeature.ARM_AWAY
+            | AlarmControlPanelEntityFeature.ARM_NIGHT
         )
 
     def _area(self) -> AreaStatus | None:
@@ -129,16 +149,28 @@ class ByAlarmPanel(CoordinatorEntity[ByAlarmCoordinator], AlarmControlPanelEntit
         return attrs
 
     async def async_alarm_disarm(self, code: str | None = None) -> None:
+        self._check_saig2_mode("Dis")
         await self._run_command(self.coordinator.async_disarm(self._area_idsf))
 
     async def async_alarm_arm_away(self, code: str | None = None) -> None:
+        self._check_saig2_mode("Tot")
         await self._run_command(self.coordinator.async_arm("Tot", self._area_idsf))
 
     async def async_alarm_arm_home(self, code: str | None = None) -> None:
+        self._check_saig2_mode("Int")
         await self._run_command(self.coordinator.async_arm("Int", self._area_idsf))
 
     async def async_alarm_arm_night(self, code: str | None = None) -> None:
+        self._check_saig2_mode("Par")
         await self._run_command(self.coordinator.async_arm("Par", self._area_idsf))
+
+    def _check_saig2_mode(self, mode: str) -> None:
+        """By-alarm Plus: niente comando al gateway se il modo non e' ammesso per il codice utente."""
+        modes = self._saig2_modes()
+        if modes is not None and mode not in modes:
+            raise HomeAssistantError(
+                f"Mode '{mode}' is not available for this area with the configured user code"
+            )
 
     async def _run_command(self, coro) -> None:
         try:

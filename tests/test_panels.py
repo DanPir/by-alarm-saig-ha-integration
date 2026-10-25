@@ -24,6 +24,10 @@ class AlarmControlPanelState(str, enum.Enum):
     ARMED_NIGHT = "armed_night"; TRIGGERED = "triggered"
 
 
+class HomeAssistantError(Exception):
+    pass
+
+
 class AlarmControlPanelEntityFeature(enum.IntFlag):
     ARM_HOME = 1; ARM_AWAY = 2; ARM_NIGHT = 4
 
@@ -54,7 +58,8 @@ _mod("homeassistant.components.alarm_control_panel", AlarmControlPanelEntity=obj
      AlarmControlPanelEntityFeature=AlarmControlPanelEntityFeature, AlarmControlPanelState=AlarmControlPanelState)
 _mod("homeassistant.config_entries", ConfigEntry=object)
 _mod("homeassistant.core", HomeAssistant=object)
-_mod("homeassistant.exceptions", ConfigEntryAuthFailed=Exception, ConfigEntryNotReady=Exception)
+_mod("homeassistant.exceptions", ConfigEntryAuthFailed=Exception, ConfigEntryNotReady=Exception,
+     HomeAssistantError=HomeAssistantError)
 _mod("homeassistant.helpers.device_registry", DeviceInfo=dict)
 _mod("homeassistant.helpers.entity_platform", AddEntitiesCallback=object)
 _mod("homeassistant.helpers.update_coordinator", CoordinatorEntity=CoordinatorEntity,
@@ -76,10 +81,16 @@ api = _load("api"); const = _load("const"); coord_mod = _load("coordinator"); ac
 S = AlarmControlPanelState
 
 
-def area(idsf, name, insert, zones, zone_alarm="[]"):
+# modi ammessi come li manda il gateway a un codice utente con permessi di comando
+MODES_DIS_TOT = ('[{"forcedAllowed":false,"inhibitZonesAllowed":false,"mode":"Dis","specialAllowed":false},'
+                 '{"forcedAllowed":false,"inhibitZonesAllowed":false,"mode":"Tot","specialAllowed":true}]')
+
+
+def area(idsf, name, insert, zones, zone_alarm="[]", modes="[]"):
     return {"sstype": "SS_Area_Saig2", "idsf": idsf, "name": name, "elements": [
         {"sfetype": "SFE_State_Insert", "value": insert}, {"sfetype": "SFE_State_Zones", "value": zones},
-        {"sfetype": "SFE_State_ZoneAlarm", "value": zone_alarm}]}
+        {"sfetype": "SFE_State_ZoneAlarm", "value": zone_alarm},
+        {"sfetype": "SFE_AvailableInsertMode", "value": modes}, {"sfetype": "SFE_Cmd_Insert", "value": ""}]}
 
 
 def zone(idsf, zid, name, opened=False):
@@ -142,11 +153,27 @@ class TestPanels(unittest.TestCase):
         self.assertEqual(ents[0].extra_state_attributes["zone_aperte"], ["Zona 1"])
         self.assertEqual(ents[2].extra_state_attributes["zone_aperte"], ["Zona 4"])
 
-    def test_comandi_all_area_giusta(self):
-        coord, ents = setup(status(PLUS), 21001)
+    def test_plus_senza_permessi_sola_lettura(self):
+        coord, ents = setup(status(PLUS), 21001)  # codice senza permessi: nessun modo ammesso
+        self.assertEqual([int(e.supported_features) for e in ents], [0, 0, 0])
+        with self.assertRaises(HomeAssistantError):
+            asyncio.run(ents[1].async_alarm_arm_away())
+        with self.assertRaises(HomeAssistantError):
+            asyncio.run(ents[2].async_alarm_disarm())
+        self.assertEqual(coord.calls, [])  # niente mandato al gateway
+
+    def test_plus_con_permessi_comandi_all_area_giusta(self):
+        blocks = [area(21001, "Area A", "Tot", "[1,2]", modes=MODES_DIS_TOT),
+                  area(21002, "Area B", "Dis", "[3,4]", modes=MODES_DIS_TOT)]
+        coord, ents = setup(status(blocks), 21001)
+        F = AlarmControlPanelEntityFeature
+        self.assertEqual([e.supported_features for e in ents], [F.ARM_AWAY, F.ARM_AWAY])
         asyncio.run(ents[1].async_alarm_arm_away())
-        asyncio.run(ents[2].async_alarm_disarm())
-        self.assertEqual(coord.calls, [("arm", "Tot", 21002), ("disarm", 21003)])
+        asyncio.run(ents[0].async_alarm_disarm())
+        self.assertEqual(coord.calls, [("arm", "Tot", 21002), ("disarm", 21001)])
+        with self.assertRaises(HomeAssistantError):  # nessun "Int" sulla Plus
+            asyncio.run(ents[1].async_alarm_arm_home())
+        self.assertEqual(len(coord.calls), 2)
 
     def test_area_unica_come_originale(self):
         blocks = [{"sstype": "SS_Area", "idsf": 5, "name": "Casa", "elements": [{"sfetype": "SFE_State_Insert", "value": "Int"}]},
@@ -155,6 +182,53 @@ class TestPanels(unittest.TestCase):
         self.assertEqual(len(ents), 1)
         self.assertIsNone(ents[0]._attr_name)
         self.assertEqual(ents[0].alarm_state, S.ARMED_HOME)
+
+    def test_saig_comandi_come_originale(self):
+        blocks = [{"sstype": "SS_Area", "idsf": 5, "name": "Casa", "elements": [{"sfetype": "SFE_State_Insert", "value": "Dis"}]},
+                  {"sstype": "SS_Service_Saig", "elements": [{"sfetype": "SFE_State_AreaAlarm", "value": "False"}]}]
+        coord, ents = setup(status(blocks), 5)
+        F = AlarmControlPanelEntityFeature
+        self.assertEqual(ents[0].supported_features, F.ARM_HOME | F.ARM_AWAY | F.ARM_NIGHT)
+        asyncio.run(ents[0].async_alarm_arm_away())
+        asyncio.run(ents[0].async_alarm_disarm())
+        self.assertEqual(coord.calls, [("arm", "Tot", 5), ("disarm", 5)])
+
+
+class TestComandoSaig2(unittest.TestCase):
+    def test_valore_come_app_view(self):
+        c = api.ByAlarmClient(host="x", username="x", useruid="x", duid="x", device_password="x", source_uid="x", pin="x")
+        sent = []
+
+        async def fake(idsf, sfetype, value):
+            sent.append((idsf, sfetype, value))
+        c._do_area_action = fake
+        asyncio.run(c.async_insert_saig2(21001, "Tot"))
+        asyncio.run(c.async_insert_saig2(21001, "Dis"))
+        self.assertEqual(sent, [
+            (21001, "SFE_Cmd_Insert", '{"mode":"Tot","special":false,"forced":false,"inhibitZones":false}'),
+            (21001, "SFE_Cmd_Insert", '{"mode":"Dis","special":false,"forced":false,"inhibitZones":false}')])
+
+    def test_coordinatore_sceglie_il_comando(self):
+        sent = []
+
+        class Client:
+            async def async_insert_saig2(self, idsf, mode):
+                sent.append(("saig2", idsf, mode))
+
+            async def async_arm(self, mode, idsf):
+                sent.append(("arm", idsf, mode))
+
+            async def async_disarm(self, idsf):
+                sent.append(("disarm", idsf))
+
+        async def refresh():
+            pass
+        for data in (status(PLUS), status([{"sstype": "SS_Area", "idsf": 5, "name": "Casa", "elements": []}])):
+            co = coord_mod.ByAlarmCoordinator.__new__(coord_mod.ByAlarmCoordinator)
+            co.client, co.area_idsf, co.data, co.async_request_refresh = Client(), 5, data, refresh
+            asyncio.run(co.async_arm("Tot", 21001 if data.saig2 else None))
+            asyncio.run(co.async_disarm(21001 if data.saig2 else None))
+        self.assertEqual(sent, [("saig2", 21001, "Tot"), ("saig2", 21001, "Dis"), ("arm", 5, "Tot"), ("disarm", 5)])
 
 
 if __name__ == "__main__":

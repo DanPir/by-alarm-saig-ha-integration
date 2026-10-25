@@ -43,10 +43,22 @@ class ByAlarmCoordinator(DataUpdateCoordinator[SystemStatus]):
         except (ByAlarmConnectionError, ByAlarmError) as err:
             raise UpdateFailed(f"Errore comunicando con il gateway: {err}") from err
 
+    @property
+    def saig2(self) -> bool:
+        return bool(self.data and self.data.saig2)
+
     async def async_arm(self, mode: str, area_idsf: int | None = None) -> None:
-        await self.client.async_arm(mode, area_idsf if area_idsf is not None else self.area_idsf)
+        area_idsf = area_idsf if area_idsf is not None else self.area_idsf
+        if self.saig2:
+            await self.client.async_insert_saig2(area_idsf, mode)
+        else:
+            await self.client.async_arm(mode, area_idsf)
         await self.async_request_refresh()
 
     async def async_disarm(self, area_idsf: int | None = None) -> None:
-        await self.client.async_disarm(area_idsf if area_idsf is not None else self.area_idsf)
+        area_idsf = area_idsf if area_idsf is not None else self.area_idsf
+        if self.saig2:
+            await self.client.async_insert_saig2(area_idsf, "Dis")
+        else:
+            await self.client.async_disarm(area_idsf)
         await self.async_request_refresh()

@@ -94,6 +94,7 @@ Settings -> Devices & services -> Add integration -> search for
 - `alarm_control_panel` entity with real-time state (updated every 30
   seconds)
 - Commands: Disarm, Full Arm (Away), Home Arm (Home), Partial Arm (Night)
+  (on By-alarm Plus: Disarm and Full Arm only, experimental, see below)
 - Extra attributes: open zones, tampered zones, bypassed zones, maintenance
   status
 
@@ -215,9 +216,31 @@ turning `triggered` and calls those same actions/scripts directly.
 
 ## Available entities
 
-- `alarm_control_panel.*` — state and commands for the alarm area
+- `alarm_control_panel.*` — state and commands for the alarm area (on
+  multi-area systems, one entity per area)
 - `binary_sensor.*` — one pair (open/tamper) for each detected zone, plus
   7 general status sensors (alarm, memory, device tamper, maintenance)
+
+### By-alarm Plus (03800-03802 with gateway 03812)
+
+The By-alarm Plus gateway uses different block types (`Saig2`), detected
+automatically:
+
+- one `alarm_control_panel` per area (state and triggered alarm per area)
+- **experimental** Disarm / Full Arm (Away) per area, sent as
+  `SFE_Cmd_Insert` with the JSON value used by the Vimar VIEW app
+  (`{"mode":"Tot","special":false,"forced":false,"inhibitZones":false}`).
+  The panel only offers the modes the gateway lists in
+  `SFE_AvailableInsertMode` for the configured user code: with a code that
+  has no arm/disarm rights the list is empty and the panel is read-only,
+  and nothing is sent to the gateway
+- per-zone open, tamper and masking sensors
+- control unit anomaly sensors (mains, battery, GSM/PSTN, tamper, ...) and
+  tamper sensors for keypads and expansions; any value other than `Idle`
+  turns the sensor on, and the raw value is available as an attribute
+- of the 7 general SAIG status sensors only "alarm" is kept, computed from
+  the areas: the Plus does not report the other fields, so they are not
+  created
 
 ## Arming mode mapping
 
@@ -229,8 +252,10 @@ turning `triggered` and calls those same actions/scripts directly.
 
 ## Known limitations
 
-- Only the first detected area/partition is exposed as an entity
-  (multi-area systems would require an extension)
+- On By-alarm Plus, arming and disarming from Home Assistant are
+  experimental (the format comes from the Vimar VIEW app, tested so far
+  on one system only); partial modes (`ParA`-`ParD`), immediate activation,
+  forced arming and zone exclusion are not supported yet
 - The device password saved by VIEW Pro was stable in testing, but the
   gateway could theoretically regenerate it: if that happens, it would need
   to be updated in the integration's configuration

@@ -45,6 +45,10 @@ ARM_COMMANDS = {
     "Par": ("SFE_Cmd_Par", "Par"),
 }
 DISARM_COMMAND = ("SFE_Cmd_Dis", "Dis")
+# By-alarm Plus (Saig2): un solo comando per area, SFE_Cmd_Insert, con valore JSON
+# {"mode": "Tot"/"Dis"/"ParA".., "special": attivazione immediata, "forced", "inhibitZones"}
+# (stesso formato dell'app Vimar VIEW). I modi ammessi per il codice utente stanno in SFE_AvailableInsertMode.
+SAIG2_INSERT_COMMAND = "SFE_Cmd_Insert"
 
 # Messaggi leggibili per i codici di errore piu' comuni (codice IPErrorType)
 ERROR_MESSAGES = {
@@ -92,6 +96,7 @@ class AreaStatus:
     zone_alarms: list = field(default_factory=list)
     zone_ids: list = field(default_factory=list)
     alarm: bool = False  # area con almeno una zona in allarme (By-alarm Plus, blocchi Saig2)
+    insert_modes: dict = field(default_factory=dict)  # Saig2: modo -> {"specialAllowed", "forcedAllowed", ...}
 
 
 @dataclass
@@ -541,6 +546,11 @@ class ByAlarmClient:
                     zone_alarms = json.loads(get_elem(elements, "SFE_State_ZoneAlarm") or "[]")
                 except json.JSONDecodeError:
                     zone_alarms = []
+                try:
+                    insert_modes = {m["mode"]: m for m in json.loads(get_elem(elements, "SFE_AvailableInsertMode") or "[]")
+                                    if isinstance(m, dict) and "mode" in m}
+                except (json.JSONDecodeError, TypeError):
+                    insert_modes = {}
                 status.areas.append(AreaStatus(
                     idsf=block.get("idsf"),
                     name=block.get("name", ""),
@@ -550,6 +560,7 @@ class ByAlarmClient:
                     zone_alarms=zone_alarms,
                     zone_ids=zone_ids,
                     alarm=bool(zone_alarms),
+                    insert_modes=insert_modes,
                 ))
 
             elif sstype == "SS_Zone":
@@ -587,3 +598,9 @@ class ByAlarmClient:
     async def async_disarm(self, area_idsf: int) -> None:
         sfetype, value = DISARM_COMMAND
         await self._do_area_action(area_idsf, sfetype, value)
+
+    async def async_insert_saig2(self, area_idsf: int, mode: str, special: bool = False) -> None:
+        """By-alarm Plus: inserisce ("Tot", "ParA".."ParD") o disinserisce ("Dis") un'area."""
+        value = json.dumps({"mode": mode, "special": special, "forced": False, "inhibitZones": False},
+                           separators=(",", ":"))
+        await self._do_area_action(area_idsf, SAIG2_INSERT_COMMAND, value)
