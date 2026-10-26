@@ -252,8 +252,8 @@ automatically:
 - of the 7 general SAIG status sensors only "alarm" (computed from the
   areas) and "alarm memory" are kept. On the Plus the alarm memory is per
   zone: `SFE_State_AlarmInfo` is `Idle`, `Alarm` or `Memory`, so "alarm
-  memory" is on when a zone is in `Memory`, and each area panel lists its
-  zones in memory. The Plus does not report the other fields
+  memory" is on when a zone is in `Memory` (or an area status contains
+  `Memory`), and each area panel lists its zones in memory. The Plus does not report the other fields
   (maintenance, zone/device tamper, ...), so they are not created and the
   matching panel attributes are not shown
 
