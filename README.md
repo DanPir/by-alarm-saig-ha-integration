@@ -226,7 +226,11 @@ turning `triggered` and calls those same actions/scripts directly.
 The By-alarm Plus gateway uses different block types (`Saig2`), detected
 automatically:
 
-- one `alarm_control_panel` per area (state and triggered alarm per area)
+- one `alarm_control_panel` per area (state and triggered alarm per area).
+  While the exit time runs (`SFE_State_ExitTimeBuzzer`) the panel shows
+  `arming`, and the attributes `stato_area` (`SFE_State_AreaStatus`:
+  `Burglar`, `Technical`, `Memory`) and `tempo_di_uscita` expose the raw area
+  status
 - **experimental** Disarm / Full Arm (Away) per area, sent as
   `SFE_Cmd_Insert` with the JSON value used by the Vimar VIEW app
   (`{"mode":"Tot","special":false,"forced":false,"inhibitZones":false}`).
@@ -236,6 +240,9 @@ automatically:
   and nothing is sent to the gateway
 - per-zone open, tamper and masking sensors (masking disabled by default:
   enable it only for detectors with anti-masking)
+- one diagnostic sensor per activation line (`SS_ByalarmCommand_Saig2`, on
+  when the output is active), named as in the control unit: what a line
+  drives depends on the installation
 - control unit anomaly sensors (mains, battery, GSM/PSTN, tamper, ...) and
   tamper sensors for keypads and expansions; any value other than `Idle`
   turns the sensor on, and the raw value is available as an attribute

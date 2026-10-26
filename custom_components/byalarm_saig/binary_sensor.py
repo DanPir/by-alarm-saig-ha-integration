@@ -17,7 +17,7 @@ from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
-from .api import DeviceStatus, SystemStatus, ZoneStatus
+from .api import ActivationLine, DeviceStatus, SystemStatus, ZoneStatus
 from .const import CONF_DUID, DOMAIN
 from .coordinator import ByAlarmCoordinator
 
@@ -61,6 +61,8 @@ async def async_setup_entry(
                 entities.append(ByAlarmAnomalySensor(coordinator, entry, duid, key))
             for device in status.devices:
                 entities.append(ByAlarmDeviceTamperSensor(coordinator, entry, duid, device.idsf))
+            for line in status.lines:
+                entities.append(ByAlarmActivationLineSensor(coordinator, entry, duid, line.idsf))
 
     async_add_entities(entities)
 
@@ -361,3 +363,40 @@ class ByAlarmDeviceTamperSensor(CoordinatorEntity[ByAlarmCoordinator], BinarySen
     def extra_state_attributes(self) -> dict:
         device = self._device
         return {"valore_centrale": device.tamper} if device else {}
+
+
+class ByAlarmActivationLineSensor(CoordinatorEntity[ByAlarmCoordinator], BinarySensorEntity):
+    """Linea di attivazione (By-alarm Plus): un'uscita della centrale, acceso = attiva.
+    A cosa serve dipende dall'impianto, quindi resta tra le informazioni diagnostiche."""
+
+    _attr_has_entity_name = True
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+
+    def __init__(self, coordinator: ByAlarmCoordinator, entry: ConfigEntry, duid: str, line_idsf: int) -> None:
+        super().__init__(coordinator)
+        self._line_idsf = line_idsf
+        self._attr_unique_id = f"{duid}_line_{line_idsf}"
+        self._attr_device_info = _device_info(duid, entry.title)
+        line = self._line
+        self._attr_name = line.name if line and line.name else f"Linea di attivazione {line_idsf}"
+
+    @property
+    def _line(self) -> ActivationLine | None:
+        status = self.coordinator.data
+        if status is None:
+            return None
+        return next((ln for ln in status.lines if ln.idsf == self._line_idsf), None)
+
+    @property
+    def is_on(self) -> bool | None:
+        line = self._line
+        return None if line is None or not line.on_off else line.on_off == "On"
+
+    @property
+    def available(self) -> bool:
+        return super().available and self._line is not None
+
+    @property
+    def extra_state_attributes(self) -> dict:
+        line = self._line
+        return {"valore_centrale": line.on_off, "trigger": line.trigger} if line else {}

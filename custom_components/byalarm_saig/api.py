@@ -50,6 +50,8 @@ DISARM_COMMAND = ("SFE_Cmd_Dis", "Dis")
 # (stesso formato dell'app Vimar VIEW). I modi ammessi per il codice utente stanno in SFE_AvailableInsertMode.
 SAIG2_INSERT_COMMAND = "SFE_Cmd_Insert"
 ZONE_ALARM_MEMORY = "Memory"  # valore di SFE_State_AlarmInfo per una zona con allarme in memoria
+# SFE_State_AreaStatus (By-alarm Plus): elenco con "Burglar" (intrusione), "Technical" (tecnico), "Memory"
+AREA_STATE_MEMORY = "Memory"
 
 # Messaggi leggibili per i codici di errore piu' comuni (codice IPErrorType)
 ERROR_MESSAGES = {
@@ -98,6 +100,8 @@ class AreaStatus:
     zone_ids: list = field(default_factory=list)
     alarm: bool = False  # area con almeno una zona in allarme (By-alarm Plus, blocchi Saig2)
     insert_modes: dict = field(default_factory=dict)  # Saig2: modo -> {"specialAllowed", "forcedAllowed", ...}
+    exit_time: bool = False  # Saig2: tempo di uscita in corso (SFE_State_ExitTimeBuzzer)
+    area_states: list = field(default_factory=list)  # Saig2: SFE_State_AreaStatus, es. ["Burglar", "Memory"]
 
 
 @dataclass
@@ -123,6 +127,15 @@ class DeviceStatus:
 
 
 @dataclass
+class ActivationLine:
+    """Linea di attivazione (By-alarm Plus, SS_ByalarmCommand_Saig2): un'uscita della centrale."""
+    idsf: int
+    name: str
+    on_off: str  # "On" / "Off"
+    trigger: str  # SFE_State_Trigger
+
+
+@dataclass
 class SystemStatus:
     maintenance: bool
     area_armed: bool
@@ -137,6 +150,7 @@ class SystemStatus:
     saig2: bool = False  # By-alarm Plus: i campi generali qui sopra non esistono, vedi anomalies/devices
     anomalies: dict = field(default_factory=dict)  # SFE_State_* di SS_SaiPlant_ControlUnitAnomalies -> valore
     devices: list = field(default_factory=list)
+    lines: list = field(default_factory=list)  # linee di attivazione (By-alarm Plus)
 
 
 def _gen_key(n: int = 12) -> str:
@@ -517,6 +531,14 @@ class ByAlarmClient:
                 status.anomalies = {e.get("sfetype"): e.get("value") for e in elements
                                     if str(e.get("sfetype", "")).startswith("SFE_State_")}
 
+            elif sstype == "SS_ByalarmCommand_Saig2":
+                status.lines.append(ActivationLine(
+                    idsf=block.get("idsf"),
+                    name=block.get("name", ""),
+                    on_off=get_elem(elements, "SFE_State_OnOff") or "",
+                    trigger=get_elem(elements, "SFE_State_Trigger") or "",
+                ))
+
             elif sstype in ("SS_SaiPlant_Keyboard", "SS_SaiPlant_Expansion"):
                 status.devices.append(DeviceStatus(
                     idsf=block.get("idsf"),
@@ -552,6 +574,12 @@ class ByAlarmClient:
                                     if isinstance(m, dict) and "mode" in m}
                 except (json.JSONDecodeError, TypeError):
                     insert_modes = {}
+                area_states = []
+                if sstype == "SS_Area_Saig2":
+                    try:
+                        area_states = [str(v) for v in json.loads(get_elem(elements, "SFE_State_AreaStatus") or "[]")]
+                    except (json.JSONDecodeError, TypeError):
+                        area_states = []
                 status.areas.append(AreaStatus(
                     idsf=block.get("idsf"),
                     name=block.get("name", ""),
@@ -562,6 +590,8 @@ class ByAlarmClient:
                     zone_ids=zone_ids,
                     alarm=sstype == "SS_Area_Saig2" and bool(zone_alarms),
                     insert_modes=insert_modes,
+                    exit_time=sstype == "SS_Area_Saig2" and get_elem(elements, "SFE_State_ExitTimeBuzzer") == "True",
+                    area_states=area_states,
                 ))
 
             elif sstype == "SS_Zone":
@@ -580,7 +610,8 @@ class ByAlarmClient:
         if status.saig2:
             status.area_alarm = any(a.alarm for a in status.areas)
             # sulla Plus la memoria d'allarme e' per zona: SFE_State_AlarmInfo Idle / Alarm / Memory
-            status.area_alarm_memory = any(z.alarm_info == ZONE_ALARM_MEMORY for z in status.zones)
+            status.area_alarm_memory = any(z.alarm_info == ZONE_ALARM_MEMORY for z in status.zones) or any(
+                AREA_STATE_MEMORY in a.area_states for a in status.areas)
         return status
 
     async def _do_area_action(self, idsf: int, sfetype: str, value: str) -> None:

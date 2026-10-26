@@ -92,10 +92,12 @@ MODES_DIS_TOT = ('[{"forcedAllowed":false,"inhibitZonesAllowed":false,"mode":"Di
                  '{"forcedAllowed":false,"inhibitZonesAllowed":false,"mode":"Tot","specialAllowed":true}]')
 
 
-def area(idsf, name, insert, zones, zone_alarm="[]", modes="[]"):
+def area(idsf, name, insert, zones, zone_alarm="[]", modes="[]", exit_time="False", area_status="[]"):
     return {"sstype": "SS_Area_Saig2", "idsf": idsf, "name": name, "elements": [
         {"sfetype": "SFE_State_Insert", "value": insert}, {"sfetype": "SFE_State_Zones", "value": zones},
         {"sfetype": "SFE_State_ZoneAlarm", "value": zone_alarm},
+        {"sfetype": "SFE_State_ExitTimeBuzzer", "value": exit_time},
+        {"sfetype": "SFE_State_AreaStatus", "value": area_status},
         {"sfetype": "SFE_AvailableInsertMode", "value": modes}, {"sfetype": "SFE_Cmd_Insert", "value": ""}]}
 
 
@@ -234,6 +236,20 @@ class TestPanels(unittest.TestCase):
         self.assertEqual((ents[1].extra_state_attributes["allarme_in_memoria"],
                           ents[1].extra_state_attributes["zone_in_memoria"]), (False, []))
         self.assertEqual([e.alarm_state for e in ents], [S.DISARMED, S.DISARMED])  # memoria non e' allarme in corso
+
+    def test_plus_tempo_di_uscita(self):
+        blocks = [area(21001, "Area A", "Tot", "[1]", exit_time="True"), area(21002, "Area B", "Tot", "[2]")]
+        _, ents = setup(status(blocks), 21001)
+        self.assertEqual([e.alarm_state for e in ents], [S.ARMING, S.ARMED_AWAY])
+        self.assertTrue(ents[0].extra_state_attributes["tempo_di_uscita"])
+
+    def test_plus_stato_area(self):
+        blocks = [area(21001, "Area A", "Dis", "[1]", area_status='["Memory"]'), area(21002, "Area B", "Tot", "[2]")]
+        _, ents = setup(status(blocks), 21001)
+        a = ents[0].extra_state_attributes
+        self.assertEqual((a["stato_area"], a["allarme_in_memoria"], a["zone_in_memoria"]), (["Memory"], True, []))
+        self.assertEqual(ents[1].extra_state_attributes["stato_area"], [])
+        self.assertTrue(ents[0].coordinator.data.area_alarm_memory)
 
     def test_saig_allarme_solo_dal_campo_generale(self):
         # sulla SAIG originale l'elenco delle zone in allarme dell'area non cambia lo stato (come prima)

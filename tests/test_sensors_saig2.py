@@ -175,6 +175,19 @@ class TestSensorsSaig2(unittest.TestCase):
         self.assertTrue(ids["D_area_alarm_memory"].is_on)
         self.assertFalse(setup(status(plus()))["D_area_alarm_memory"].is_on)
 
+    def test_linee_di_attivazione(self):
+        blocks = plus() + [
+            {"sstype": "SS_ByalarmCommand_Saig2", "idsf": 30401, "name": "Linea di attivazione 1", "elements": [
+                {"sfetype": "SFE_State_Trigger", "value": "On"}, {"sfetype": "SFE_State_OnOff", "value": "On"}]},
+            {"sstype": "SS_ByalarmCommand_Saig2", "idsf": 30402, "name": "Linea di attivazione 2", "elements": [
+                {"sfetype": "SFE_State_Trigger", "value": "On"}, {"sfetype": "SFE_State_OnOff", "value": "Off"}]}]
+        ids = setup(status(blocks))
+        l1, l2 = ids["D_line_30401"], ids["D_line_30402"]
+        self.assertEqual((l1.is_on, l2.is_on), (True, False))
+        self.assertEqual(l1._attr_name, "Linea di attivazione 1")
+        self.assertEqual(l1._attr_entity_category, EntityCategory.DIAGNOSTIC)  # non in evidenza
+        self.assertEqual(l1.extra_state_attributes, {"valore_centrale": "On", "trigger": "On"})
+
     def test_allarme_in_corso_dalle_aree(self):
         ids = setup(status(plus(zone_alarm="[1]")))
         self.assertTrue(ids["D_area_alarm"].is_on)

@@ -28,7 +28,7 @@ from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
-from .api import ZONE_ALARM_MEMORY, AreaStatus, ByAlarmError
+from .api import AREA_STATE_MEMORY, ZONE_ALARM_MEMORY, AreaStatus, ByAlarmError
 from .const import CONF_DUID, CONFIRM_TIMEOUT, DOMAIN
 from .coordinator import ByAlarmCoordinator
 
@@ -131,6 +131,8 @@ class ByAlarmPanel(CoordinatorEntity[ByAlarmCoordinator], AlarmControlPanelEntit
             return AlarmControlPanelState.TRIGGERED
         if self._pending:
             return AlarmControlPanelState.DISARMING if self._pending[0] == "Dis" else AlarmControlPanelState.ARMING
+        if area.exit_time and area.insert != "Dis":  # By-alarm Plus: tempo di uscita in corso
+            return AlarmControlPanelState.ARMING
         return _STATE_MAP.get(area.insert)
 
     @callback
@@ -156,10 +158,12 @@ class ByAlarmPanel(CoordinatorEntity[ByAlarmCoordinator], AlarmControlPanelEntit
                 "tamper_dispositivo": status.device_tamper_alarm,
             })
         zones = [z for z in status.zones if not area.zone_ids or z.zone_id in area.zone_ids]
-        if status.saig2:  # memoria d'allarme per zona (SFE_State_AlarmInfo)
+        if status.saig2:  # memoria d'allarme per zona (SFE_State_AlarmInfo) e per area (SFE_State_AreaStatus)
             in_memoria = [z.name for z in zones if z.alarm_info == ZONE_ALARM_MEMORY]
-            attrs["allarme_in_memoria"] = bool(in_memoria)
+            attrs["allarme_in_memoria"] = bool(in_memoria) or AREA_STATE_MEMORY in area.area_states
             attrs["zone_in_memoria"] = in_memoria
+            attrs["stato_area"] = area.area_states  # "Burglar" (intrusione), "Technical" (tecnico), "Memory"
+            attrs["tempo_di_uscita"] = area.exit_time
         attrs["zone_aperte"] = [z.name for z in zones if z.opened]
         attrs["zone_tamper"] = [z.name for z in zones if z.tamper]
         attrs["zone_escluse"] = [z.name for z in zones if z.excluded]
