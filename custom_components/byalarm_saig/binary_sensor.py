@@ -366,11 +366,13 @@ class ByAlarmDeviceTamperSensor(CoordinatorEntity[ByAlarmCoordinator], BinarySen
 
 
 class ByAlarmActivationLineSensor(CoordinatorEntity[ByAlarmCoordinator], BinarySensorEntity):
-    """Linea di attivazione (By-alarm Plus): un'uscita della centrale, acceso = attiva.
-    A cosa serve dipende dall'impianto, quindi resta tra le informazioni diagnostiche."""
+    """Linea di attivazione (By-alarm Plus): un gruppo di uscite comandato da inseritori, tastiere con
+    transponder, telecomandi, scenari/automatismi o By-me Plus; acceso = attiva. Serve solo a chi le usa:
+    diagnostica e disattivata di default."""
 
     _attr_has_entity_name = True
     _attr_entity_category = EntityCategory.DIAGNOSTIC
+    _attr_entity_registry_enabled_default = False
 
     def __init__(self, coordinator: ByAlarmCoordinator, entry: ConfigEntry, duid: str, line_idsf: int) -> None:
         super().__init__(coordinator)

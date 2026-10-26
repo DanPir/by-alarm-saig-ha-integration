@@ -186,6 +186,7 @@ class TestSensorsSaig2(unittest.TestCase):
         self.assertEqual((l1.is_on, l2.is_on), (True, False))
         self.assertEqual(l1._attr_name, "Linea di attivazione 1")
         self.assertEqual(l1._attr_entity_category, EntityCategory.DIAGNOSTIC)  # non in evidenza
+        self.assertFalse(l1._attr_entity_registry_enabled_default)  # utile solo a chi usa le linee
         self.assertEqual(l1.extra_state_attributes, {"valore_centrale": "On", "trigger": "On"})
 
     def test_allarme_in_corso_dalle_aree(self):

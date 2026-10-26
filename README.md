@@ -241,8 +241,11 @@ automatically:
 - per-zone open, tamper and masking sensors (masking disabled by default:
   enable it only for detectors with anti-masking)
 - one diagnostic sensor per activation line (`SS_ByalarmCommand_Saig2`, on
-  when the output is active), named as in the control unit: what a line
-  drives depends on the installation
+  when the line is active), named as in the control unit and disabled by
+  default: activation lines group outputs driven by keypads with
+  transponder, key readers, remotes, scenarios or By-me Plus, so they are
+  useful only where they are used. Single outputs (relay, OC, AUX) are not
+  reported by the gateway
 - control unit anomaly sensors (mains, battery, GSM/PSTN, tamper, ...) and
   tamper sensors for keypads and expansions; any value other than `Idle`
   turns the sensor on, and the raw value is available as an attribute
