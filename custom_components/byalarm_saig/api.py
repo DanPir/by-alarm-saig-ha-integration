@@ -99,7 +99,7 @@ class AreaStatus:
     status: str
     zone_alarms: list = field(default_factory=list)
     zone_ids: list = field(default_factory=list)
-    alarm: bool = False  # area con almeno una zona in allarme (By-alarm Plus, blocchi Saig2)
+    alarm: bool = False  # area in allarme (By-alarm Plus, blocchi Saig2: vedi _saig2_area_alarm)
     insert_modes: dict = field(default_factory=dict)  # Saig2: modo -> {"specialAllowed", "forcedAllowed", ...}
     exit_time: bool = False  # Saig2: tempo di uscita in corso (SFE_State_ExitTimeBuzzer)
     area_states: list = field(default_factory=list)  # Saig2: SFE_State_AreaStatus, es. ["Burglar", "Memory"]
@@ -129,7 +129,7 @@ class DeviceStatus:
 
 @dataclass
 class ActivationLine:
-    """Linea di attivazione (By-alarm Plus, SS_ByalarmCommand_Saig2): un'uscita della centrale."""
+    """Linea di attivazione (By-alarm Plus, SS_ByalarmCommand_Saig2): un gruppo di uscite della centrale."""
     idsf: int
     name: str
     on_off: str  # "On" / "Off"

@@ -259,6 +259,7 @@ class TestPanels(unittest.TestCase):
         self.assertEqual(ents[0].alarm_state, S.DISARMED)
         a = ents[0].extra_state_attributes
         self.assertEqual((a["stato_area"], a["allarme_in_memoria"], a["zone_in_memoria"]), (["Memory"], True, ["Zona 6"]))
+        self.assertEqual(a["zone_ultimo_allarme"], ["Zona 6"])  # resta finche' la memoria non viene azzerata
 
     def test_plus_allarme_dallo_stato_area(self):
         cases = [("Tot", "[Burglar]", "[6]", S.TRIGGERED), ("Tot", "[Technical]", "[]", S.TRIGGERED),

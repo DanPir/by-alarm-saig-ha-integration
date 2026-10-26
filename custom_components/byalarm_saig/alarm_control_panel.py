@@ -126,7 +126,7 @@ class ByAlarmPanel(CoordinatorEntity[ByAlarmCoordinator], AlarmControlPanelEntit
         if area is None:
             return None
         status = self.coordinator.data
-        # stato di allarme: per area (zone in allarme); con una sola area vale anche quello generale
+        # stato di allarme: per area (sulla Plus da SFE_State_AreaStatus); con una sola area vale anche quello generale
         if area.alarm or (not self._multi and status.area_alarm):
             return AlarmControlPanelState.TRIGGERED
         if self._pending:
@@ -167,7 +167,8 @@ class ByAlarmPanel(CoordinatorEntity[ByAlarmCoordinator], AlarmControlPanelEntit
         attrs["zone_aperte"] = [z.name for z in zones if z.opened]
         attrs["zone_tamper"] = [z.name for z in zones if z.tamper]
         attrs["zone_escluse"] = [z.name for z in zones if z.excluded]
-        attrs["zone_in_allarme"] = [z.name for z in zones if z.zone_id in area.zone_alarms]
+        # SFE_State_ZoneAlarm: zone dell'ultimo allarme, restano finche' la memoria non viene azzerata (By-alarm Plus)
+        attrs["zone_ultimo_allarme"] = [z.name for z in zones if z.zone_id in area.zone_alarms]
         return attrs
 
     async def async_alarm_disarm(self, code: str | None = None) -> None:
