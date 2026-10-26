@@ -52,6 +52,7 @@ SAIG2_INSERT_COMMAND = "SFE_Cmd_Insert"
 ZONE_ALARM_MEMORY = "Memory"  # valore di SFE_State_AlarmInfo per una zona con allarme in memoria
 # SFE_State_AreaStatus (By-alarm Plus): elenco con "Burglar" (intrusione), "Technical" (tecnico), "Memory"
 AREA_STATE_MEMORY = "Memory"
+AREA_STATES_ALARM = ("Burglar", "Technical")
 
 # Messaggi leggibili per i codici di errore piu' comuni (codice IPErrorType)
 ERROR_MESSAGES = {
@@ -151,6 +152,29 @@ class SystemStatus:
     anomalies: dict = field(default_factory=dict)  # SFE_State_* di SS_SaiPlant_ControlUnitAnomalies -> valore
     devices: list = field(default_factory=list)
     lines: list = field(default_factory=list)  # linee di attivazione (By-alarm Plus)
+
+
+def _parse_area_states(raw: str | None) -> list:
+    """SFE_State_AreaStatus (By-alarm Plus): elenco come "[Memory]" o "[Burglar,Memory]", senza
+    virgolette (non e' JSON valido), oppure in JSON. Restituisce es. ["Burglar", "Memory"]."""
+    if not raw:
+        return []
+    try:
+        value = json.loads(raw)
+        if isinstance(value, list):
+            return [str(v) for v in value]
+    except (json.JSONDecodeError, TypeError):
+        pass
+    return [v.strip().strip('"') for v in raw.strip().strip("[]").split(",") if v.strip()]
+
+
+def _saig2_area_alarm(area_states: list, zone_alarms: list, insert: str) -> bool:
+    """Area in allarme (By-alarm Plus). Lo dice SFE_State_AreaStatus (Burglar / Technical); l'elenco
+    SFE_State_ZoneAlarm resta pieno anche dopo la fine dell'allarme e dopo il disinserimento (visto il
+    26/10/2026), quindi si usa solo se la centrale non manda lo stato dell'area, e solo ad area inserita."""
+    if area_states:
+        return any(s in AREA_STATES_ALARM for s in area_states)
+    return bool(zone_alarms) and insert != "Dis"
 
 
 def _gen_key(n: int = 12) -> str:
@@ -574,12 +598,7 @@ class ByAlarmClient:
                                     if isinstance(m, dict) and "mode" in m}
                 except (json.JSONDecodeError, TypeError):
                     insert_modes = {}
-                area_states = []
-                if sstype == "SS_Area_Saig2":
-                    try:
-                        area_states = [str(v) for v in json.loads(get_elem(elements, "SFE_State_AreaStatus") or "[]")]
-                    except (json.JSONDecodeError, TypeError):
-                        area_states = []
+                area_states = _parse_area_states(get_elem(elements, "SFE_State_AreaStatus")) if sstype == "SS_Area_Saig2" else []
                 status.areas.append(AreaStatus(
                     idsf=block.get("idsf"),
                     name=block.get("name", ""),
@@ -588,7 +607,7 @@ class ByAlarmClient:
                     status=get_elem(elements, "SFE_State_Status") or get_elem(elements, "SFE_State_AreaStatus") or "",
                     zone_alarms=zone_alarms,
                     zone_ids=zone_ids,
-                    alarm=sstype == "SS_Area_Saig2" and bool(zone_alarms),
+                    alarm=sstype == "SS_Area_Saig2" and _saig2_area_alarm(area_states, zone_alarms, insert),
                     insert_modes=insert_modes,
                     exit_time=sstype == "SS_Area_Saig2" and get_elem(elements, "SFE_State_ExitTimeBuzzer") == "True",
                     area_states=area_states,

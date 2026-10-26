@@ -251,6 +251,29 @@ class TestPanels(unittest.TestCase):
         self.assertEqual(ents[1].extra_state_attributes["stato_area"], [])
         self.assertTrue(ents[0].coordinator.data.area_alarm_memory)
 
+    def test_plus_dopo_allarme_e_disinserimento(self):
+        # visto il 26/10/2026: dopo il disinserimento ZoneAlarm resta "[6]" e AreaStatus e' "[Memory]" (senza virgolette)
+        blocks = [area(21002, "Area B", "Dis", "[6]", zone_alarm="[6]", area_status="[Memory]"),
+                  zone(22006, 6, "Zona 6", alarm_info="Memory")]
+        _, ents = setup(status(blocks), 21002)
+        self.assertEqual(ents[0].alarm_state, S.DISARMED)
+        a = ents[0].extra_state_attributes
+        self.assertEqual((a["stato_area"], a["allarme_in_memoria"], a["zone_in_memoria"]), (["Memory"], True, ["Zona 6"]))
+
+    def test_plus_allarme_dallo_stato_area(self):
+        cases = [("Tot", "[Burglar]", "[6]", S.TRIGGERED), ("Tot", "[Technical]", "[]", S.TRIGGERED),
+                 ("Tot", "[Memory]", "[6]", S.ARMED_AWAY),  # sirena finita, area ancora inserita
+                 ("Tot", "[]", "[6]", S.TRIGGERED),  # senza stato dell'area: dall'elenco delle zone
+                 ("Dis", "[]", "[6]", S.DISARMED)]
+        for insert, st, za, expected in cases:
+            _, ents = setup(status([area(21001, "Area A", insert, "[6]", zone_alarm=za, area_status=st)]), 21001)
+            self.assertEqual(ents[0].alarm_state, expected, (insert, st, za))
+
+    def test_lettura_stato_area(self):
+        f = api._parse_area_states
+        self.assertEqual([f(None), f(""), f("[]"), f("[Memory]"), f("[Burglar, Memory]"), f('["Technical"]')],
+                         [[], [], [], ["Memory"], ["Burglar", "Memory"], ["Technical"]])
+
     def test_saig_allarme_solo_dal_campo_generale(self):
         # sulla SAIG originale l'elenco delle zone in allarme dell'area non cambia lo stato (come prima)
         blocks = [{"sstype": "SS_Area", "idsf": 5, "name": "Casa", "elements": [
