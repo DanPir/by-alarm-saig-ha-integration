@@ -85,8 +85,16 @@ hacs.json, README.md, LICENSE (MIT)
 
 - Mappatura modi: Totale->Away, Interno->Home, Parziale->Night (scelta
   ragionevole, personalizzabile).
-- Solo la prima area/partizione rilevata viene esposta (impianto attuale ne
-  ha una sola; multi-area richiederebbe un'estensione).
+- Un `alarm_control_panel` per ogni area letta dal gateway (dalla v0.9.7,
+  contributo di Matteo2L per la By-alarm Plus, che ha piu' aree). Il
+  pannello della prima area mantiene l'unique_id originale
+  `{duid}_area_{idsf}`; il nome e' quello del dispositivo solo con una
+  sola area. Il blocco `Saig2` della Plus (`SS_Area_Saig2`,
+  `SS_SaiPlant_*_Saig2`, comando `SFE_Cmd_Insert`) e' gestito in
+  `api.py`/`coordinator.py`/`alarm_control_panel.py`; la SAIG originale
+  continua a usare `SS_Area`/`SS_Service_Saig` (invariata, verificata sul
+  gateway reale). Con una sola area gli attributi zone restano su tutte le
+  zone; il filtro per area vale solo con piu' aree.
 - La card Lovelace custom incapsula la card nativa Home Assistant
   (`type: tile`, `features: [{type: "alarm-modes"}]`) via
   `window.loadCardHelpers()`, per garantire aspetto identico all'originale;
@@ -190,7 +198,7 @@ python tools/byalarm_sai_client.py --host <IP> --username <email> \
    https://github.com/DanPir/by-alarm-saig-ha-integration, PR
    https://github.com/hacs/default/pull/10954 approvata e unita da frenck
    il 2026-10-24, quindi presente nella lista default (installabile senza
-   aggiungere il repository come custom). Ultima release: v0.9.6.
+   aggiungere il repository come custom). Ultima release: v0.9.7.
    Processo seguito, utile per le prossime release: bump di versione in
    `manifest.json`, commit + push, tag `vX.Y.Z`, attendere che HACS e
    hassfest siano verdi, poi pubblicare la release su GitHub (stessa
@@ -208,23 +216,30 @@ python tools/byalarm_sai_client.py --host <IP> --username <email> \
 11. [FATTO] Nuova automazione (non legata all'integrazione By-alarm): notifica
     Telegram + notifica HA per apertura/chiusura della cassetta delle
     lettere (entita' Aqara "Cassetta Lettere")
-12. Supporto By-alarm Plus (centrale 03800-03802 + gateway 03812): richiesto
-    da Matteo2L in https://github.com/DanPir/by-alarm-saig-ha-integration/issues/2,
-    che ha una versione locale funzionante e propone una PR (rebase su
-    v0.9.3 o successiva). Risposta gia' pubblicata: PR benvenuta, purche'
-    rebased, senza cambiare il comportamento sulla SAIG (unique_id della
-    prima area invariato), con fixture anonimizzate e con arm/disarm sulla
-    Plus segnalati come non testati. Punto importante dell'issue: su Plus i
-    binary_sensor di sistema restano sempre "off" (i blocchi
-    `SS_SaiPlant_All_Saig2` hanno solo comandi), un falso senso di sicurezza.
-    Noi non abbiamo una Plus: possiamo solo fare test di regressione sulla
-    SAIG. Quando arriva la PR: revisionarla e provarla contro la SAIG
-    reale, poi rilasciare (dopo la merge, con bump di versione).
+12. [FATTO] Supporto By-alarm Plus (centrale 03800-03802 + gateway 03812):
+    richiesto da Matteo2L in
+    https://github.com/DanPir/by-alarm-saig-ha-integration/issues/2 e
+    contribuito da lui con la PR #3, unita il 2026-10-28 e rilasciata come
+    v0.9.7. Su Plus i binary_sensor di sistema originali restavano sempre
+    "off" (`SS_SaiPlant_All_Saig2` ha solo comandi): la PR li sostituisce
+    con anomalie/tamper reali. Arm/disarm sulla Plus e' SPERIMENTALE
+    (testato solo da lui, su un impianto). Noi non abbiamo una Plus: la
+    parte Plus si regge sui suoi 43 test offline (`tests/`, con stub
+    minimi di HA, si lanciano con `python tests/<file>.py`); sulla SAIG
+    abbiamo solo verificato che non ci siano regressioni. In review gli
+    abbiamo chiesto (e ha fatto) di legare il task di conferma dopo un
+    comando alla config entry (altrimenti riapre una connessione dopo un
+    reload) e di non filtrare le zone per area con una sola area. Nota di
+    processo: le run di un fork richiedono "Approve workflows to run" ad
+    ogni push; controllare prima che non tocchi `.github/`. L'issue #2 e'
+    ancora aperta (da chiudere/ringraziare).
 13. Da fare appena il login del browser su Home Assistant e' disponibile
     (la sessione e' scaduta; il login OIDC (SSO) dava "redirect_uri
     non valido", funziona "Default login"): installare su HA le release
-    dalla v0.9.3 alla v0.9.6 (`[UPLOAD]` + riavvio) e provare dal vivo il
-    reauth (`async_update_reload_and_abort`), mai verificato dentro HA.
+    dalla v0.9.3 alla v0.9.7 (`[UPLOAD]` + riavvio), verificare che la
+    SAIG si comporti come prima con il codice multi-area, e provare dal
+    vivo il reauth (`async_update_reload_and_abort`), mai verificato
+    dentro HA.
 
 ## Sicurezza / cose a cui fare attenzione
 
