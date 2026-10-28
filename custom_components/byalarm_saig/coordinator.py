@@ -5,6 +5,7 @@ import asyncio
 import logging
 from datetime import timedelta
 
+from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import ConfigEntryAuthFailed
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
@@ -34,15 +35,18 @@ def _area_states(status: SystemStatus) -> dict:
 class ByAlarmCoordinator(DataUpdateCoordinator[SystemStatus]):
     """Mantiene la connessione al gateway e aggiorna periodicamente lo stato."""
 
-    def __init__(self, hass: HomeAssistant, client: ByAlarmClient, area_idsf: int) -> None:
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry, client: ByAlarmClient, area_idsf: int) -> None:
         super().__init__(
             hass,
             _LOGGER,
+            config_entry=entry,
             name="Vimar By-alarm",
             update_interval=timedelta(seconds=DEFAULT_SCAN_INTERVAL),
         )
         self.client = client
         self.area_idsf = area_idsf
+        self._confirm_targets: dict[int, str] = {}
+        self._confirm_task: asyncio.Task | None = None
 
     async def _async_update_data(self) -> SystemStatus:
         try:
@@ -100,17 +104,27 @@ class ByAlarmCoordinator(DataUpdateCoordinator[SystemStatus]):
 
     def _start_confirm(self, area_idsf: int, target: str) -> None:
         # il comando e' partito: la centrale cambia stato dopo qualche secondo, quindi invece di
-        # aspettare la lettura normale (ogni 30 s) si rilegge spesso finche' non conferma
-        self.hass.async_create_background_task(
-            self._async_confirm(area_idsf, target), name=f"byalarm_confirm_{area_idsf}"
+        # aspettare la lettura normale (ogni 30 s) si rilegge spesso finche' non conferma.
+        # Un solo ciclo per tutti i comandi in attesa; il task e' legato alla config entry,
+        # quindi viene cancellato se l'entry viene scaricata o ricaricata.
+        self._confirm_targets[area_idsf] = target
+        if self._confirm_task and not self._confirm_task.done():
+            self._confirm_task.cancel()
+        self._confirm_task = self.config_entry.async_create_background_task(
+            self.hass, self._async_confirm(), name="byalarm_confirm"
         )
 
-    async def _async_confirm(self, area_idsf: int, target: str) -> None:
+    async def _async_confirm(self) -> None:
         for _ in range(CONFIRM_TIMEOUT // CONFIRM_INTERVAL):
             await asyncio.sleep(CONFIRM_INTERVAL)
             await self.async_refresh()
-            if self.area_insert(area_idsf) == target:
+            for area_idsf, target in list(self._confirm_targets.items()):
+                if self.area_insert(area_idsf) == target:
+                    del self._confirm_targets[area_idsf]
+            if not self._confirm_targets:
                 return
-        _LOGGER.warning(
-            "Il gateway non ha confermato '%s' sull'area %s entro %s s", target, area_idsf, CONFIRM_TIMEOUT
-        )
+        for area_idsf, target in self._confirm_targets.items():
+            _LOGGER.warning(
+                "Il gateway non ha confermato '%s' sull'area %s entro %s s", target, area_idsf, CONFIRM_TIMEOUT
+            )
+        self._confirm_targets.clear()

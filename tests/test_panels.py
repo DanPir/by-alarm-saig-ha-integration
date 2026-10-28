@@ -147,6 +147,30 @@ PLUS = [area(21001, "Area A", "Tot", "[1,2]"), area(21002, "Area B", "Tot", "[3,
         zone(22001, 1, "Zona 1", opened=True), zone(22003, 3, "Zona 3"), zone(22004, 4, "Zona 4", opened=True)]
 
 
+class FakeTask:
+    def __init__(self):
+        self.cancelled = False
+
+    def done(self):
+        return self.cancelled
+
+    def cancel(self):
+        self.cancelled = True
+
+
+def new_coord(data, started):
+    """Coordinatore senza HA: i task di conferma passano dalla config entry (cancellati allo scaricamento)."""
+    co = coord_mod.ByAlarmCoordinator.__new__(coord_mod.ByAlarmCoordinator)
+    co.data, co.hass, co._confirm_targets, co._confirm_task = data, object(), {}, None
+
+    def create_task(hass, coro, name):
+        started.append(name)
+        coro.close()
+        return FakeTask()
+    co.config_entry = types.SimpleNamespace(async_create_background_task=create_task)
+    return co
+
+
 class TestPanels(unittest.TestCase):
     def test_un_pannello_per_area_con_nomi_e_id(self):
         _, ents = setup(status(PLUS), 21001)
@@ -285,6 +309,12 @@ class TestPanels(unittest.TestCase):
         self.assertEqual(ents[0].alarm_state, S.ARMED_AWAY)
         self.assertTrue(ents[0].extra_state_attributes["manutenzione"])
 
+    def test_area_unica_tutte_le_zone(self):
+        # con una sola area gli attributi elencano tutte le zone, anche quelle fuori da SFE_State_Zones (come l'originale)
+        blocks = [area(21001, "Area A", "Tot", "[1]"), zone(22001, 1, "Zona 1"), zone(22003, 3, "Zona 3", opened=True)]
+        _, ents = setup(status(blocks), 21001)
+        self.assertEqual(ents[0].extra_state_attributes["zone_aperte"], ["Zona 3"])
+
     def test_area_unica_come_originale(self):
         blocks = [{"sstype": "SS_Area", "idsf": 5, "name": "Casa", "elements": [{"sfetype": "SFE_State_Insert", "value": "Int"}]},
                   {"sstype": "SS_Service_Saig", "elements": [{"sfetype": "SFE_State_AreaAlarm", "value": "False"}]}]
@@ -332,18 +362,49 @@ class TestComandoSaig2(unittest.TestCase):
                 sent.append(("disarm", idsf))
 
         started = []
-        hass = types.SimpleNamespace(async_create_background_task=lambda coro, name: (started.append(name), coro.close()))
         for data in (status(PLUS), status([{"sstype": "SS_Area", "idsf": 5, "name": "Casa", "elements": []}])):
-            co = coord_mod.ByAlarmCoordinator.__new__(coord_mod.ByAlarmCoordinator)
-            co.client, co.area_idsf, co.data, co.hass = Client(), 5, data, hass
+            co = new_coord(data, started)
+            co.client, co.area_idsf = Client(), 5
             asyncio.run(co.async_arm("Tot", 21001 if data.saig2 else None))
             asyncio.run(co.async_disarm(21001 if data.saig2 else None))
         self.assertEqual(sent, [("saig2", 21001, "Tot"), ("saig2", 21001, "Dis"), ("arm", 5, "Tot"), ("disarm", 5)])
         self.assertEqual(len(started), 4)  # dopo ogni comando parte la conferma con letture ravvicinate
 
+    def test_nuovo_comando_un_solo_ciclo_di_conferma(self):
+        # il ciclo precedente viene cancellato e quello nuovo aspetta entrambe le aree
+        started = []
+        co = new_coord(status(PLUS), started)
+        co._start_confirm(21001, "Dis")
+        primo = co._confirm_task
+        co._start_confirm(21002, "Dis")
+        self.assertTrue(primo.cancelled)
+        self.assertFalse(co._confirm_task.cancelled)
+        self.assertEqual(co._confirm_targets, {21001: "Dis", 21002: "Dis"})
+        self.assertEqual(len(started), 2)
+
+    def test_conferma_aspetta_tutte_le_aree(self):
+        co = new_coord(status([area(21001, "Area A", "Tot", "[1]"), area(21002, "Area B", "Tot", "[2]")]), [])
+        co._confirm_targets = {21001: "Dis", 21002: "Dis"}
+        letture = []
+
+        async def refresh():
+            letture.append(1)
+            if len(letture) == 1:  # prima si disinserisce l'area A, poi la B
+                co.data = status([area(21001, "Area A", "Dis", "[1]"), area(21002, "Area B", "Tot", "[2]")])
+            if len(letture) == 3:
+                co.data = status([area(21001, "Area A", "Dis", "[1]"), area(21002, "Area B", "Dis", "[2]")])
+        co.async_refresh = refresh
+        sleep = coord_mod.asyncio.sleep
+        coord_mod.asyncio.sleep = lambda s: sleep(0)
+        try:
+            asyncio.run(co._async_confirm())
+        finally:
+            coord_mod.asyncio.sleep = sleep
+        self.assertEqual((len(letture), co._confirm_targets), (3, {}))
+
     def test_conferma_si_ferma_appena_la_centrale_cambia(self):
-        co = coord_mod.ByAlarmCoordinator.__new__(coord_mod.ByAlarmCoordinator)
-        co.data = status([area(21001, "Area A", "Dis", "[1]")])
+        co = new_coord(status([area(21001, "Area A", "Dis", "[1]")]), [])
+        co._confirm_targets = {21001: "Tot"}
         letture = []
 
         async def refresh():
@@ -354,7 +415,7 @@ class TestComandoSaig2(unittest.TestCase):
         sleep = coord_mod.asyncio.sleep
         coord_mod.asyncio.sleep = lambda s: sleep(0)
         try:
-            asyncio.run(co._async_confirm(21001, "Tot"))
+            asyncio.run(co._async_confirm())
         finally:
             coord_mod.asyncio.sleep = sleep
         self.assertEqual(len(letture), 3)

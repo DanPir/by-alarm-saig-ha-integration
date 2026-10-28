@@ -157,7 +157,9 @@ class ByAlarmPanel(CoordinatorEntity[ByAlarmCoordinator], AlarmControlPanelEntit
                 "tamper_zona": status.zone_tamper,
                 "tamper_dispositivo": status.device_tamper_alarm,
             })
-        zones = [z for z in status.zones if not area.zone_ids or z.zone_id in area.zone_ids]
+        zones = status.zones
+        if self._multi and area.zone_ids:  # con piu' aree solo le zone dell'area; con una sola, tutte (come l'originale)
+            zones = [z for z in zones if z.zone_id in area.zone_ids]
         if status.saig2:  # memoria d'allarme per zona (SFE_State_AlarmInfo) e per area (SFE_State_AreaStatus)
             in_memoria = [z.name for z in zones if z.alarm_info == ZONE_ALARM_MEMORY]
             attrs["allarme_in_memoria"] = bool(in_memoria) or AREA_STATE_MEMORY in area.area_states
