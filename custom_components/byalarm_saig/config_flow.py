@@ -91,7 +91,8 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 errors["base"] = "unknown"
             else:
                 await self.async_set_unique_id(user_input[CONF_DUID])
-                self._abort_if_unique_id_configured()
+                # stesso gateway (DUID) gia' configurato: aggiorna l'indirizzo e ricarica
+                self._abort_if_unique_id_configured(updates={CONF_HOST: user_input[CONF_HOST]})
 
                 entry_data = {
                     **user_input,

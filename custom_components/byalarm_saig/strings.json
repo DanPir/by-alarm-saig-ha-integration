@@ -50,7 +50,21 @@
       "zone_mask": { "name": "Zona mascherata" },
       "device_tamper_alarm": { "name": "Tamper dispositivo" },
       "device_tamper_alarm_memory": { "name": "Tamper dispositivo in memoria" },
-      "maintenance": { "name": "Manutenzione" }
+      "maintenance": { "name": "Manutenzione" },
+      "anomaly_device_tamper": { "name": "Tamper centrale" },
+      "anomaly_control_unit_no_link": { "name": "Collegamento con la centrale" },
+      "anomaly_mains_ac_absent": { "name": "Mancanza 230 V" },
+      "anomaly_low_battery": { "name": "Batteria centrale bassa" },
+      "anomaly_battery_disconnected": { "name": "Batteria centrale scollegata" },
+      "anomaly_battery_short_circuit": { "name": "Batteria centrale in corto" },
+      "anomaly_battery_inefficiency": { "name": "Batteria centrale inefficiente" },
+      "anomaly_pstn_no_line": { "name": "Linea telefonica assente" },
+      "anomaly_gsm_no_line": { "name": "Linea GSM assente" },
+      "anomaly_gsm_jamming": { "name": "Disturbo GSM" },
+      "anomaly_some_device_battery_low": { "name": "Batteria bassa in un dispositivo" },
+      "zone_masked": { "name": "{zone} mascherata" },
+      "keyboard_tamper": { "name": "Tamper tastiera {device}" },
+      "expansion_tamper": { "name": "Tamper espansione {device}" }
     }
   }
 }

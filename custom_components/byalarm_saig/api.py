@@ -45,6 +45,14 @@ ARM_COMMANDS = {
     "Par": ("SFE_Cmd_Par", "Par"),
 }
 DISARM_COMMAND = ("SFE_Cmd_Dis", "Dis")
+# By-alarm Plus (Saig2): un solo comando per area, SFE_Cmd_Insert, con valore JSON
+# {"mode": "Tot"/"Dis"/"ParA".., "special": attivazione immediata, "forced", "inhibitZones"}
+# (stesso formato dell'app Vimar VIEW). I modi ammessi per il codice utente stanno in SFE_AvailableInsertMode.
+SAIG2_INSERT_COMMAND = "SFE_Cmd_Insert"
+ZONE_ALARM_MEMORY = "Memory"  # valore di SFE_State_AlarmInfo per una zona con allarme in memoria
+# SFE_State_AreaStatus (By-alarm Plus): elenco con "Burglar" (intrusione), "Technical" (tecnico), "Memory"
+AREA_STATE_MEMORY = "Memory"
+AREA_STATES_ALARM = ("Burglar", "Technical")
 
 # Messaggi leggibili per i codici di errore piu' comuni (codice IPErrorType)
 ERROR_MESSAGES = {
@@ -91,6 +99,10 @@ class AreaStatus:
     status: str
     zone_alarms: list = field(default_factory=list)
     zone_ids: list = field(default_factory=list)
+    alarm: bool = False  # area in allarme (By-alarm Plus, blocchi Saig2: vedi _saig2_area_alarm)
+    insert_modes: dict = field(default_factory=dict)  # Saig2: modo -> {"specialAllowed", "forcedAllowed", ...}
+    exit_time: bool = False  # Saig2: tempo di uscita in corso (SFE_State_ExitTimeBuzzer)
+    area_states: list = field(default_factory=list)  # Saig2: SFE_State_AreaStatus, es. ["Burglar", "Memory"]
 
 
 @dataclass
@@ -107,6 +119,24 @@ class ZoneStatus:
 
 
 @dataclass
+class DeviceStatus:
+    """Tastiera o espansione (By-alarm Plus): per ora solo il tamper."""
+    idsf: int
+    name: str
+    kind: str  # "keyboard" / "expansion"
+    tamper: str  # "Idle" = a riposo
+
+
+@dataclass
+class ActivationLine:
+    """Linea di attivazione (By-alarm Plus, SS_ByalarmCommand_Saig2): un gruppo di uscite della centrale."""
+    idsf: int
+    name: str
+    on_off: str  # "On" / "Off"
+    trigger: str  # SFE_State_Trigger
+
+
+@dataclass
 class SystemStatus:
     maintenance: bool
     area_armed: bool
@@ -118,6 +148,33 @@ class SystemStatus:
     device_tamper_alarm_memory: bool
     areas: list = field(default_factory=list)
     zones: list = field(default_factory=list)
+    saig2: bool = False  # By-alarm Plus: i campi generali qui sopra non esistono, vedi anomalies/devices
+    anomalies: dict = field(default_factory=dict)  # SFE_State_* di SS_SaiPlant_ControlUnitAnomalies -> valore
+    devices: list = field(default_factory=list)
+    lines: list = field(default_factory=list)  # linee di attivazione (By-alarm Plus)
+
+
+def _parse_area_states(raw: str | None) -> list:
+    """SFE_State_AreaStatus (By-alarm Plus): elenco come "[Memory]" o "[Burglar,Memory]", senza
+    virgolette (non e' JSON valido), oppure in JSON. Restituisce es. ["Burglar", "Memory"]."""
+    if not raw:
+        return []
+    try:
+        value = json.loads(raw)
+        if isinstance(value, list):
+            return [str(v) for v in value]
+    except (json.JSONDecodeError, TypeError):
+        pass
+    return [v.strip().strip('"') for v in raw.strip().strip("[]").split(",") if v.strip()]
+
+
+def _saig2_area_alarm(area_states: list, zone_alarms: list, insert: str) -> bool:
+    """Area in allarme (By-alarm Plus). Lo dice SFE_State_AreaStatus (Burglar / Technical); l'elenco
+    SFE_State_ZoneAlarm resta pieno anche dopo la fine dell'allarme e dopo il disinserimento (visto il
+    26/10/2026), quindi si usa solo se la centrale non manda lo stato dell'area, e solo ad area inserita."""
+    if area_states:
+        return any(s in AREA_STATES_ALARM for s in area_states)
+    return bool(zone_alarms) and insert != "Dis"
 
 
 def _gen_key(n: int = 12) -> str:
@@ -487,7 +544,34 @@ class ByAlarmClient:
             sstype = block.get("sstype")
             elements = block.get("elements", [])
 
-            if sstype == "SS_Service_Saig":
+            # By-alarm Plus: il gateway usa "SS_SaiPlant_All_Saig2" e "SS_Area_Saig2" al posto di
+            # "SS_Service_Saig" e "SS_Area". SS_SaiPlant_All_Saig2 contiene solo comandi (MuteAll,
+            # MemResetAll): gli stati generali stanno in ControlUnitAnomalies, Keyboard ed Expansion.
+            if sstype == "SS_SaiPlant_All_Saig2":
+                status.saig2 = True
+
+            elif sstype == "SS_SaiPlant_ControlUnitAnomalies":
+                status.saig2 = True
+                status.anomalies = {e.get("sfetype"): e.get("value") for e in elements
+                                    if str(e.get("sfetype", "")).startswith("SFE_State_")}
+
+            elif sstype == "SS_ByalarmCommand_Saig2":
+                status.lines.append(ActivationLine(
+                    idsf=block.get("idsf"),
+                    name=block.get("name", ""),
+                    on_off=get_elem(elements, "SFE_State_OnOff") or "",
+                    trigger=get_elem(elements, "SFE_State_Trigger") or "",
+                ))
+
+            elif sstype in ("SS_SaiPlant_Keyboard", "SS_SaiPlant_Expansion"):
+                status.devices.append(DeviceStatus(
+                    idsf=block.get("idsf"),
+                    name=block.get("name", ""),
+                    kind="keyboard" if sstype == "SS_SaiPlant_Keyboard" else "expansion",
+                    tamper=get_elem(elements, "SFE_State_DeviceTamper") or "",
+                ))
+
+            elif sstype == "SS_Service_Saig":
                 status.maintenance = get_elem(elements, "SFE_State_Maintenance") == "On"
                 status.area_armed = get_elem(elements, "SFE_State_AreaArmed") == "True"
                 status.area_alarm = get_elem(elements, "SFE_State_AreaAlarm") == "True"
@@ -497,7 +581,9 @@ class ByAlarmClient:
                 status.device_tamper_alarm = get_elem(elements, "SFE_State_DeviceTamperAlarm") == "True"
                 status.device_tamper_alarm_memory = get_elem(elements, "SFE_State_DeviceTamperAlarmMemory") == "True"
 
-            elif sstype == "SS_Area":
+            elif sstype in ("SS_Area", "SS_Area_Saig2"):
+                if sstype == "SS_Area_Saig2":
+                    status.saig2 = True
                 insert = get_elem(elements, "SFE_State_Insert") or "Dis"
                 try:
                     zone_ids = json.loads(get_elem(elements, "SFE_State_Zones") or "[]")
@@ -507,14 +593,24 @@ class ByAlarmClient:
                     zone_alarms = json.loads(get_elem(elements, "SFE_State_ZoneAlarm") or "[]")
                 except json.JSONDecodeError:
                     zone_alarms = []
+                try:
+                    insert_modes = {m["mode"]: m for m in json.loads(get_elem(elements, "SFE_AvailableInsertMode") or "[]")
+                                    if isinstance(m, dict) and "mode" in m}
+                except (json.JSONDecodeError, TypeError):
+                    insert_modes = {}
+                area_states = _parse_area_states(get_elem(elements, "SFE_State_AreaStatus")) if sstype == "SS_Area_Saig2" else []
                 status.areas.append(AreaStatus(
                     idsf=block.get("idsf"),
                     name=block.get("name", ""),
                     insert=insert,
                     armed=insert != "Dis",
-                    status=get_elem(elements, "SFE_State_Status") or "",
+                    status=get_elem(elements, "SFE_State_Status") or get_elem(elements, "SFE_State_AreaStatus") or "",
                     zone_alarms=zone_alarms,
                     zone_ids=zone_ids,
+                    alarm=sstype == "SS_Area_Saig2" and _saig2_area_alarm(area_states, zone_alarms, insert),
+                    insert_modes=insert_modes,
+                    exit_time=sstype == "SS_Area_Saig2" and get_elem(elements, "SFE_State_ExitTimeBuzzer") == "True",
+                    area_states=area_states,
                 ))
 
             elif sstype == "SS_Zone":
@@ -530,6 +626,11 @@ class ByAlarmClient:
                     alarm_info=get_elem(elements, "SFE_State_AlarmInfo") or "",
                 ))
 
+        if status.saig2:
+            status.area_alarm = any(a.alarm for a in status.areas)
+            # sulla Plus la memoria d'allarme e' per zona: SFE_State_AlarmInfo Idle / Alarm / Memory
+            status.area_alarm_memory = any(z.alarm_info == ZONE_ALARM_MEMORY for z in status.zones) or any(
+                AREA_STATE_MEMORY in a.area_states for a in status.areas)
         return status
 
     async def _do_area_action(self, idsf: int, sfetype: str, value: str) -> None:
@@ -550,3 +651,9 @@ class ByAlarmClient:
     async def async_disarm(self, area_idsf: int) -> None:
         sfetype, value = DISARM_COMMAND
         await self._do_area_action(area_idsf, sfetype, value)
+
+    async def async_insert_saig2(self, area_idsf: int, mode: str, special: bool = False) -> None:
+        """By-alarm Plus: inserisce ("Tot", "ParA".."ParD") o disinserisce ("Dis") un'area."""
+        value = json.dumps({"mode": mode, "special": special, "forced": False, "inhibitZones": False},
+                           separators=(",", ":"))
+        await self._do_area_action(area_idsf, SAIG2_INSERT_COMMAND, value)

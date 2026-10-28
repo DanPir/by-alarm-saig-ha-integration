@@ -132,7 +132,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     # refresh -> ConfigEntryNotReady) va chiuso, altrimenti socket e task
     # restano vivi e ogni retry ne accumula un altro set.
     try:
-        coordinator = ByAlarmCoordinator(hass, client, data[CONF_AREA_IDSF])
+        coordinator = ByAlarmCoordinator(hass, entry, client, data[CONF_AREA_IDSF])
         await coordinator.async_config_entry_first_refresh()
 
         hass.data.setdefault(DOMAIN, {})[entry.entry_id] = coordinator

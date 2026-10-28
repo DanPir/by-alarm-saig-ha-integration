@@ -94,6 +94,7 @@ Settings -> Devices & services -> Add integration -> search for
 - `alarm_control_panel` entity with real-time state (updated every 30
   seconds)
 - Commands: Disarm, Full Arm (Away), Home Arm (Home), Partial Arm (Night)
+  (on By-alarm Plus: Disarm and Full Arm only, experimental, see below)
 - Extra attributes: open zones, tampered zones, bypassed zones, maintenance
   status
 
@@ -215,9 +216,46 @@ turning `triggered` and calls those same actions/scripts directly.
 
 ## Available entities
 
-- `alarm_control_panel.*` — state and commands for the alarm area
+- `alarm_control_panel.*` — state and commands for the alarm area (on
+  multi-area systems, one entity per area)
 - `binary_sensor.*` — one pair (open/tamper) for each detected zone, plus
   7 general status sensors (alarm, memory, device tamper, maintenance)
+
+### By-alarm Plus (03800-03802 with gateway 03812)
+
+The By-alarm Plus gateway uses different block types (`Saig2`), detected
+automatically:
+
+- one `alarm_control_panel` per area (state and triggered alarm per area).
+  While the exit time runs (`SFE_State_ExitTimeBuzzer`) the panel shows
+  `arming`, and the attributes `stato_area` (`SFE_State_AreaStatus`:
+  `Burglar`, `Technical`, `Memory`) and `tempo_di_uscita` expose the raw area
+  status
+- **experimental** Disarm / Full Arm (Away) per area, sent as
+  `SFE_Cmd_Insert` with the JSON value used by the Vimar VIEW app
+  (`{"mode":"Tot","special":false,"forced":false,"inhibitZones":false}`).
+  The panel only offers the modes the gateway lists in
+  `SFE_AvailableInsertMode` for the configured user code: with a code that
+  has no arm/disarm rights the list is empty and the panel is read-only,
+  and nothing is sent to the gateway
+- per-zone open, tamper and masking sensors (masking disabled by default:
+  enable it only for detectors with anti-masking)
+- one diagnostic sensor per activation line (`SS_ByalarmCommand_Saig2`, on
+  when the line is active), named as in the control unit and disabled by
+  default: activation lines group outputs driven by keypads with
+  transponder, key readers, remotes, scenarios or By-me Plus, so they are
+  useful only where they are used. Single outputs (relay, OC, AUX) are not
+  reported by the gateway
+- control unit anomaly sensors (mains, battery, GSM/PSTN, tamper, ...) and
+  tamper sensors for keypads and expansions; any value other than `Idle`
+  turns the sensor on, and the raw value is available as an attribute
+- of the 7 general SAIG status sensors only "alarm" (computed from the
+  areas) and "alarm memory" are kept. On the Plus the alarm memory is per
+  zone: `SFE_State_AlarmInfo` is `Idle`, `Alarm` or `Memory`, so "alarm
+  memory" is on when a zone is in `Memory` (or an area status contains
+  `Memory`), and each area panel lists its zones in memory. The Plus does not report the other fields
+  (maintenance, zone/device tamper, ...), so they are not created and the
+  matching panel attributes are not shown
 
 ## Arming mode mapping
 
@@ -229,8 +267,10 @@ turning `triggered` and calls those same actions/scripts directly.
 
 ## Known limitations
 
-- Only the first detected area/partition is exposed as an entity
-  (multi-area systems would require an extension)
+- On By-alarm Plus, arming and disarming from Home Assistant are
+  experimental (the format comes from the Vimar VIEW app, tested so far
+  on one system only); partial modes (`ParA`-`ParD`), immediate activation,
+  forced arming and zone exclusion are not supported yet
 - The device password saved by VIEW Pro was stable in testing, but the
   gateway could theoretically regenerate it: if that happens, it would need
   to be updated in the integration's configuration
